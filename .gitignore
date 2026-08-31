@@ -1,0 +1,85 @@
+# =========================
+# Environment
+# =========================
+.env
+.env.local
+.env.*.local
+
+# =========================
+# Python
+# =========================
+__pycache__/
+*.py[cod]
+*$py.class
+*.so
+*.egg
+*.egg-info/
+dist/
+build/
+.eggs/
+.pytest_cache/
+.mypy_cache/
+.ruff_cache/
+.coverage
+htmlcov/
+*.pyo
+*.pyd
+.Python
+
+# =========================
+# Virtual environments
+# =========================
+.venv/
+venv/
+env/
+ENV/
+
+# =========================
+# ML Artifacts
+# =========================
+models/*.pkl
+models/*.pt
+models/*.pth
+models/*.joblib
+artifacts/
+mlruns/
+mlartifacts/
+
+# =========================
+# Logs
+# =========================
+logs/
+*.log
+
+# =========================
+# IDE
+# =========================
+.idea/
+.vscode/
+*.swp
+*.swo
+.DS_Store
+
+# =========================
+# Docker
+# =========================
+docker/data/
+
+# =========================
+# Jupyter
+# =========================
+notebooks/.ipynb_checkpoints/
+*.ipynb_checkpoints
+
+# =========================
+# Database
+# =========================
+*.db
+*.sqlite3
+
+# =========================
+# Misc
+# =========================
+*.bak
+*.tmp
+.cache/
