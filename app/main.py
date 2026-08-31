@@ -43,10 +43,8 @@ async def lifespan(app: FastAPI) -> AsyncGenerator[None, None]:
 
     # Initialize database tables on startup (if not already managed via Alembic)
     try:
-        from app.database.session import async_engine
-        from app.database import models
-        async with async_engine.begin() as conn:
-            await conn.run_sync(models.Base.metadata.create_all)
+        from app.database.session import create_all_tables
+        await create_all_tables()
         logger.info("Database tables verified")
     except Exception as e:
         logger.warning("Database init check (handled by Alembic in prod)", error=str(e))

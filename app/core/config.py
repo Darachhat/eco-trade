@@ -44,10 +44,15 @@ class Settings(BaseSettings):
     bybit_testnet: bool = True
     bybit_category: MarketCategory = MarketCategory.LINEAR
     bybit_symbols: str = "BTCUSDT,ETHUSDT,SOLUSDT,XRPUSDT"
+    bybit_timeframes: str = "1,5,15,60,240"
 
     @property
     def symbols_list(self) -> list[str]:
         return [s.strip().upper() for s in self.bybit_symbols.split(",") if s.strip()]
+
+    @property
+    def timeframes_list(self) -> list[str]:
+        return [t.strip() for t in self.bybit_timeframes.split(",") if t.strip()]
 
     # ─────────────────────────────────────────
     # Telegram

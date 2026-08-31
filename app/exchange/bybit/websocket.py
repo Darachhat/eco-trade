@@ -249,7 +249,7 @@ class BybitWebSocketManager:
         for symbol in self.symbols:
             for tf in self.timeframes:
                 topics.append(f"kline.{tf}.{symbol}")
-            topics.append(f"orderbook.25.{symbol}")
+            topics.append(f"orderbook.50.{symbol}")
             topics.append(f"publicTrade.{symbol}")
             topics.append(f"tickers.{symbol}")
         return topics
