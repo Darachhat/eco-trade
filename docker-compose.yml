@@ -64,6 +64,7 @@ services:
 
   # ─── Celery Worker ───────────────────────────
   worker:
+    build: .
     image: ecotrade:latest
     container_name: ecotrade_worker
     command: celery -A app.tasks.celery_app.celery_app worker --loglevel=info --concurrency=2
@@ -85,6 +86,7 @@ services:
 
   # ─── Celery Beat ─────────────────────────────
   beat:
+    build: .
     image: ecotrade:latest
     container_name: ecotrade_beat
     command: celery -A app.tasks.celery_app.celery_app beat --loglevel=info --scheduler=celery.beat:PersistentScheduler
@@ -102,6 +104,7 @@ services:
 
   # ─── Flower (Celery monitoring) ──────────────
   flower:
+    build: .
     image: ecotrade:latest
     container_name: ecotrade_flower
     command: celery -A app.tasks.celery_app.celery_app flower --port=5555
