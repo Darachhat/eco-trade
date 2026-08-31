@@ -146,22 +146,41 @@ class BybitWebSocketManager:
         self._set_state("SUBSCRIBED")
         logger.info("WebSocket subscribed", topics=self._subscriptions)
 
+    def _is_ws_open(self) -> bool:
+        """Check if WebSocket connection is active across websockets v10-v17+."""
+        if not self._ws:
+            return False
+        if hasattr(self._ws, "state"):
+            from websockets.protocol import State
+            return self._ws.state == State.OPEN
+        if hasattr(self._ws, "closed"):
+            return not self._ws.closed
+        return self._ws.close_code is None
+
     async def _receive_loop(self) -> None:
         """Main receive loop — parses and dispatches all incoming messages."""
-        async for raw_msg in self._ws:  # type: ignore[union-attr]
-            try:
-                msg = json.loads(raw_msg)
-                await self._handle_message(msg)
-            except json.JSONDecodeError:
-                logger.warning("Received non-JSON message", raw=raw_msg[:200])
-            except Exception as e:
-                logger.error("Error handling WS message", error=str(e))
+        if not self._ws:
+            return
+        try:
+            async for raw_msg in self._ws:  # type: ignore[union-attr]
+                try:
+                    msg = json.loads(raw_msg)
+                    await self._handle_message(msg)
+                except json.JSONDecodeError:
+                    logger.warning("Received non-JSON message", raw=raw_msg[:200])
+                except Exception as e:
+                    logger.error("Error handling WS message", error=str(e))
+        except ConnectionClosed:
+            logger.info("WebSocket connection closed")
+        except Exception as e:
+            logger.error("WebSocket receive loop encountered error", error=str(e))
+            raise
 
     async def _heartbeat_loop(self) -> None:
         """Send periodic ping to keep connection alive."""
         while self._running and self._ws:
             await asyncio.sleep(self.PING_INTERVAL)
-            if not self._ws or self._ws.closed:
+            if not self._is_ws_open():
                 break
             try:
                 await self._ws.send(json.dumps({"op": "ping"}))

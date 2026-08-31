@@ -44,7 +44,10 @@ class TelegramBot:
         if not settings.telegram_bot_token:
             raise ValueError("TELEGRAM_BOT_TOKEN is not set")
 
-        self._app = Application.builder().token(settings.telegram_bot_token).build()
+        from telegram.request import HTTPXRequest
+
+        req = HTTPXRequest(connect_timeout=30.0, read_timeout=30.0, write_timeout=30.0)
+        self._app = Application.builder().token(settings.telegram_bot_token).request(req).build()
         self._bot = self._app.bot
 
         # Register commands
@@ -77,8 +80,9 @@ class TelegramBot:
             logger.warning("No Telegram chat_id configured")
             return
         if not self._bot:
-            # Lazy init
-            self._bot = Bot(token=settings.telegram_bot_token)
+            from telegram.request import HTTPXRequest
+            req = HTTPXRequest(connect_timeout=30.0, read_timeout=30.0, write_timeout=30.0)
+            self._bot = Bot(token=settings.telegram_bot_token, request=req)
         try:
             await self._bot.send_message(
                 chat_id=target,
