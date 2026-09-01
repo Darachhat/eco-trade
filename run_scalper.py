@@ -259,30 +259,55 @@ class PureScalper:
 
     def connect(self) -> bool:
         mt5.shutdown()
-        # Search standard paths
-        init_ok = mt5.initialize(
-            login=int(self.login),
-            password=str(self.password),
-            server=str(self.server),
-            timeout=15000,
-        )
+        import subprocess
+
+        # Scan candidate paths
+        candidate_paths = [
+            r"C:\Program Files\MetaTrader 5\terminal64.exe",
+            r"C:\Program Files\Exness MetaTrader 5 Terminal\terminal64.exe",
+            r"C:\Program Files (x86)\MetaTrader 5\terminal64.exe",
+            r"C:\MetaTrader 5\terminal64.exe",
+            r"C:\MT5\terminal64.exe",
+        ]
+
+        valid_path = None
+        for p in candidate_paths:
+            if os.path.exists(p):
+                valid_path = p
+                break
+
+        init_ok = False
+        if valid_path:
+            logger.info("Found MT5 terminal binary: %s", valid_path)
+            try:
+                # Pre-spawn terminal in portable mode if not already running
+                subprocess.Popen([valid_path, "/portable"])
+                time.sleep(3)
+            except Exception as e:
+                logger.debug("Subprocess launch note: %s", e)
+
+            try:
+                init_ok = mt5.initialize(
+                    path=valid_path,
+                    login=int(self.login),
+                    password=str(self.password),
+                    server=str(self.server),
+                    portable=True,
+                    timeout=30000,
+                )
+            except Exception:
+                pass
+
         if not init_ok:
-            # Fallback path attempts
-            for path in [
-                r"C:\Program Files\MetaTrader 5\terminal64.exe",
-                r"C:\Program Files\Exness MetaTrader 5 Terminal\terminal64.exe",
-                r"C:\Program Files\Investizo MT5 Terminal\terminal64.exe",
-            ]:
-                if os.path.exists(path):
-                    init_ok = mt5.initialize(
-                        path=path,
-                        login=int(self.login),
-                        password=str(self.password),
-                        server=str(self.server),
-                        timeout=15000,
-                    )
-                    if init_ok:
-                        break
+            try:
+                init_ok = mt5.initialize(
+                    login=int(self.login),
+                    password=str(self.password),
+                    server=str(self.server),
+                    timeout=30000,
+                )
+            except Exception:
+                pass
 
         if not init_ok:
             err = mt5.last_error()
