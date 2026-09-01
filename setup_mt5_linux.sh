@@ -38,17 +38,17 @@ else
     echo "✓ Xvfb is already running."
 fi
 
-# 3. Setup Python inside Wine environment
-echo "[3/4] Setting up Windows Python inside Wine..."
+# 3. Setup Python 3.9 inside Wine environment (Avoids ucrtbase.dll.crealf bug)
+echo "[3/5] Setting up Python 3.9 for Windows inside Wine..."
 WINEPREFIX="$HOME/.wine"
 export WINEPREFIX
 
-if [ ! -d "$WINEPREFIX/drive_c/Python311" ]; then
-    echo "Downloading and installing Python 3.11 for Windows under Wine..."
-    wget -q -O /tmp/python-3.11.9-amd64.exe https://www.python.org/ftp/python/3.11.9/python-3.11.9-amd64.exe
-    wine /tmp/python-3.11.9-amd64.exe /quiet InstallAllUsers=1 PrependPath=1 TargetDir="C:\\Python311"
+if [ ! -d "$WINEPREFIX/drive_c/Python39" ]; then
+    echo "Downloading and installing Python 3.9.13 for Windows under Wine..."
+    wget -q -O /tmp/python-3.9.13-amd64.exe https://www.python.org/ftp/python/3.9.13/python-3.9.13-amd64.exe
+    wine /tmp/python-3.9.13-amd64.exe /quiet InstallAllUsers=1 PrependPath=1 TargetDir="C:\\Python39"
     sleep 5
-    echo "✓ Windows Python installed under Wine"
+    echo "✓ Windows Python 3.9 installed under Wine"
 fi
 
 # 4. Install MetaTrader 5 Terminal inside Wine
@@ -61,18 +61,18 @@ if [ ! -f "$WINEPREFIX/drive_c/Program Files/MetaTrader 5/terminal64.exe" ] && [
     echo "✓ MetaTrader 5 installed inside Wine"
 fi
 
-# 5. Install MetaTrader5 library & requirements inside Wine
-echo "[5/5] Installing MetaTrader5 Python packages inside Wine..."
-wine "C:\\Python311\\python.exe" -m pip install --upgrade pip
-wine "C:\\Python311\\python.exe" -m pip install MetaTrader5 pydantic pydantic-settings structlog pandas numpy python-dotenv requests
+# 5. Install MetaTrader5 library inside Python 3.9
+echo "[5/5] Installing MetaTrader5 inside Python 3.9..."
+wine "C:\\Python39\\python.exe" -m pip install --upgrade pip
+wine "C:\\Python39\\python.exe" -m pip install MetaTrader5
 
 echo "========================================================"
 echo " ✅ Linux MT5 Environment Ready!"
 echo "========================================================"
 echo ""
 echo "To run the 24/7 Gold Scalper forever on this VM, run:"
-echo "  DISPLAY=:99 wine 'C:\\Python311\\python.exe' run_scalper.py --symbol XAUUSDm --tp 2.0 --sl 10.0"
+echo "  DISPLAY=:99 wine 'C:\\Python39\\python.exe' run_scalper.py --symbol XAUUSDm --tp 2.0 --sl 10.0"
 echo ""
 echo "Or run in background with nohup:"
-echo "  nohup env DISPLAY=:99 wine 'C:\\Python311\\python.exe' run_scalper.py > scalper_vm.log 2>&1 &"
+echo "  nohup env DISPLAY=:99 wine 'C:\\Python39\\python.exe' run_scalper.py > scalper_vm.log 2>&1 &"
 echo "========================================================"
