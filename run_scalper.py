@@ -16,6 +16,18 @@ import sys
 import time
 from typing import Any, Dict, List, Optional
 
+# Force UTF-8 / ASCII safe console encoding on Windows & Wine
+if hasattr(sys.stdout, "reconfigure"):
+    try:
+        sys.stdout.reconfigure(encoding="utf-8", errors="replace")
+    except Exception:
+        pass
+if hasattr(sys.stderr, "reconfigure"):
+    try:
+        sys.stderr.reconfigure(encoding="utf-8", errors="replace")
+    except Exception:
+        pass
+
 try:
     import MetaTrader5 as mt5
 except ImportError:
@@ -186,7 +198,7 @@ class PureScalper:
                     }
                     res = mt5.order_send(req)
                     if res and res.retcode == mt5.TRADE_RETCODE_DONE:
-                        logger.info("🛡️ [Break-Even Locked] Ticket #%d SL moved to entry ($%.3f) at profit +$%.2f", pos.ticket, be_sl, profit_dollars)
+                        logger.info("[BREAK-EVEN LOCKED] Ticket #%d SL moved to entry ($%.3f) at profit +$%.2f", pos.ticket, be_sl, profit_dollars)
 
     def evaluate_tick(self):
         sym_info = mt5.symbol_info(self.symbol)
@@ -286,7 +298,7 @@ class PureScalper:
             res = mt5.order_send(req)
             if res and res.retcode == mt5.TRADE_RETCODE_DONE:
                 self.last_trade_time = now
-                logger.info("🚀 [BUY ORDER EXECUTED] Ticket #%d | %s %.2fL @ $%.3f | SL $%.3f (-$10) | TP $%.3f (+$2) | Conf: %.1f%%", res.order, self.symbol, volume, tick.ask, sl_price, tp_price, bull_score)
+                logger.info("[BUY EXECUTED] Ticket #%d | %s %.2fL @ $%.3f | SL $%.3f (-$10) | TP $%.3f (+$2) | Conf: %.1f%%", res.order, self.symbol, volume, tick.ask, sl_price, tp_price, bull_score)
             else:
                 logger.warning("BUY Send failed: %s (code %s)", getattr(res, "comment", "?"), getattr(res, "retcode", "?"))
 
@@ -310,7 +322,7 @@ class PureScalper:
             res = mt5.order_send(req)
             if res and res.retcode == mt5.TRADE_RETCODE_DONE:
                 self.last_trade_time = now
-                logger.info("🚀 [SELL ORDER EXECUTED] Ticket #%d | %s %.2fL @ $%.3f | SL $%.3f (-$10) | TP $%.3f (+$2) | Conf: %.1f%%", res.order, self.symbol, volume, tick.bid, sl_price, tp_price, bear_score)
+                logger.info("[SELL EXECUTED] Ticket #%d | %s %.2fL @ $%.3f | SL $%.3f (-$10) | TP $%.3f (+$2) | Conf: %.1f%%", res.order, self.symbol, volume, tick.bid, sl_price, tp_price, bear_score)
             else:
                 logger.warning("SELL Send failed: %s (code %s)", getattr(res, "comment", "?"), getattr(res, "retcode", "?"))
 
@@ -327,7 +339,7 @@ def main():
     args = parser.parse_args()
 
     print("=" * 65)
-    print(" 🚀 ECOTRADE MT5 24/7 HIGH-FREQUENCY SCALPER (GOLD)")
+    print(" [ECOTRADE MT5 24/7 HIGH-FREQUENCY SCALPER - GOLD]")
     print("=" * 65)
     print(f" Account:  {args.login} ({args.server})")
     print(f" Target:   {args.symbol}")
