@@ -54,8 +54,10 @@ def _normalize_symbol(sym: str) -> str:
         return "BTCUSDT"
     if "/" in s:
         s = s.replace("/", "")
-    if s in ("XAU", "GOLD"):
-        return "XAUUSDT"
+    if s in ("XAU", "GOLD", "XAUUSDT", "GOLDUSDT", "XAUT"):
+        return "XAUTUSDT"
+    if s in ("PAXG", "PAXGUSDT"):
+        return "PAXGUSDT"
     if not any(s.endswith(q) for q in ("USDT", "USDC", "USD", "PERP")):
         return f"{s}USDT"
     return s
@@ -164,8 +166,10 @@ async def cmd_signal(update: Update, context: ContextTypes.DEFAULT_TYPE) -> None
         candles = await client.get_candles(symbol, timeframe, limit=200)
 
         if not candles or len(candles) < 30:
+            env_type = "Testnet" if settings.bybit_testnet else "Mainnet"
             await status_msg.edit_text(
-                f"❌ Insufficient candle data for <b>{symbol}</b> ({len(candles) if candles else 0} candles retrieved).",
+                f"❌ <b>Pair not found or insufficient data:</b> <code>{html.escape(symbol)}</code> on Bybit {env_type}.\n\n"
+                f"💡 <i>Note: On Bybit, Gold token is <code>XAUTUSDT</code> or <code>PAXGUSDT</code>. Active pairs on Testnet: <code>BTCUSDT</code>, <code>ETHUSDT</code>, <code>SOLUSDT</code>, <code>XRPUSDT</code>.</i>",
                 parse_mode="HTML",
             )
             return
