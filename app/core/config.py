@@ -42,13 +42,25 @@ class Settings(BaseSettings):
     bybit_api_key: str = ""
     bybit_api_secret: str = ""
     bybit_testnet: bool = True
-    bybit_category: MarketCategory = MarketCategory.LINEAR
-    bybit_symbols: str = "BTCUSDT,ETHUSDT,SOLUSDT,XRPUSDT"
+    bybit_symbols: str = "BTCUSDT,XAUTUSDT"
     bybit_timeframes: str = "1,5,15,60,240"
 
     @property
     def symbols_list(self) -> list[str]:
-        return [s.strip().upper() for s in self.bybit_symbols.split(",") if s.strip()]
+        raw_list = [s.strip().upper() for s in self.bybit_symbols.split(",") if s.strip()]
+        normalized = []
+        for s in raw_list:
+            if "/" in s:
+                s = s.replace("/", "")
+            if s in ("XAU", "GOLD", "XAUUSDT", "GOLDUSDT", "XAUT"):
+                s = "XAUTUSDT"
+            elif s in ("BTC", "BITCOIN"):
+                s = "BTCUSDT"
+            elif not any(s.endswith(q) for q in ("USDT", "USDC", "USD", "PERP")):
+                s = f"{s}USDT"
+            if s not in normalized:
+                normalized.append(s)
+        return normalized
 
     @property
     def timeframes_list(self) -> list[str]:
