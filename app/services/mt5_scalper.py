@@ -52,12 +52,12 @@ class ScalperConfig(BaseModel):
     max_lot: float = Field(default=2.00, description="Maximum allowed lot size")
     min_lot: float = Field(default=0.01, description="Minimum allowed lot size")
 
-    # TP & SL target distances (Fast $1.00 Scalping)
-    fixed_tp_dollars: float = Field(default=1.00, description="Fixed price distance for Take Profit ($1.00 fast scalp)")
-    fixed_sl_dollars: float = Field(default=1.00, description="Fixed price distance for Stop Loss ($1.00 risk)")
-    use_fixed_targets: bool = Field(default=True, description="True for fast $1.00 scalps, False for ATR multiplier")
-    tp_atr_multiplier: float = Field(default=0.40, description="Take profit distance = ATR * multiplier")
-    sl_atr_multiplier: float = Field(default=0.40, description="Stop loss distance = ATR * multiplier")
+    # TP & SL target distances (SL $10, TP $2 Scalping)
+    fixed_tp_dollars: float = Field(default=2.00, description="Fixed price distance for Take Profit ($2.00 target)")
+    fixed_sl_dollars: float = Field(default=10.00, description="Fixed price distance for Stop Loss ($10.00 buffer)")
+    use_fixed_targets: bool = Field(default=True, description="True for fixed dollar targets ($2 TP / $10 SL)")
+    tp_atr_multiplier: float = Field(default=0.80, description="Take profit distance = ATR * multiplier")
+    sl_atr_multiplier: float = Field(default=4.00, description="Stop loss distance = ATR * multiplier")
 
     # Market Filters (points calibrated for 3-digit Gold point 0.001)
     max_spread_points: float = Field(default=400.0, description="Max allowed spread in points (e.g. 400 pts = $0.40)")

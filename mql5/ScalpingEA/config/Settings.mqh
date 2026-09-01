@@ -20,14 +20,14 @@ input group "=== Position Sizing ==="
 input double   InpMinLot                = 0.01;    // Min lot size
 input double   InpMaxLot                = 2.00;    // Max lot size
 
-//--- Fast $1.00 Scalping TP & SL
+//--- Fast Scalping TP & SL (SL $10 / TP $2)
 input group "=== Scalp Target Configuration ==="
-input bool     InpUseFixedDollarTarget  = true;    // Fast $1.00 Scalping Mode
-input double   InpFixedTargetDollars    = 1.00;    // Target Price Distance ($1.00 on Gold)
-input double   InpFixedStopDollars      = 1.00;    // Stop Loss Distance ($1.00 on Gold)
+input bool     InpUseFixedDollarTarget  = true;    // Fast Scalping Mode
+input double   InpFixedTargetDollars    = 2.00;    // Take Profit Distance ($2.00 on Gold)
+input double   InpFixedStopDollars      = 10.00;   // Stop Loss Distance ($10.00 on Gold)
 input int      InpATRPeriod             = 14;      // ATR period
-input double   InpTP_ATR_Multiplier     = 0.40;    // Take Profit ATR multiplier
-input double   InpSL_ATR_Multiplier     = 0.40;    // Stop Loss ATR multiplier
+input double   InpTP_ATR_Multiplier     = 0.80;    // Take Profit ATR multiplier
+input double   InpSL_ATR_Multiplier     = 4.00;    // Stop Loss ATR multiplier
 
 //--- Market Filters
 input group "=== Market Filters ==="
