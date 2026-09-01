@@ -8,12 +8,15 @@ Target: Gold (XAUUSDm) with TP +$2.00 / SL -$10.00 / Dynamic Break-Even +$1.00.
 
 import argparse
 import datetime
+import json
 import logging
 import math
 import os
 import signal
 import sys
+import threading
 import time
+from http.server import BaseHTTPRequestHandler, HTTPServer
 from typing import Any, Dict, List, Optional
 
 # Force UTF-8 / ASCII safe console encoding on Windows & Wine
@@ -56,6 +59,142 @@ def _sig_handler(sig, frame):
 
 signal.signal(signal.SIGINT, _sig_handler)
 signal.signal(signal.SIGTERM, _sig_handler)
+
+GLOBAL_SCALPER = None
+
+
+class ScalperBridgeHTTPHandler(BaseHTTPRequestHandler):
+    def log_message(self, format, *args):
+        pass  # Quiet HTTP logs
+
+    def _send_json(self, status: int, data: Any):
+        try:
+            body = json.dumps(data).encode("utf-8")
+            self.send_response(status)
+            self.send_header("Content-Type", "application/json")
+            self.send_header("Content-Length", str(len(body)))
+            self.end_headers()
+            self.wfile.write(body)
+        except Exception:
+            pass
+
+    def do_GET(self):
+        if self.path.startswith("/api/mt5/status"):
+            if not GLOBAL_SCALPER or not GLOBAL_SCALPER.is_connected:
+                self._send_json(200, {"connected": False})
+                return
+            acc = mt5.account_info()
+            if not acc:
+                self._send_json(200, {"connected": False})
+                return
+            self._send_json(200, {
+                "connected": True,
+                "login": acc.login,
+                "server": acc.server,
+                "company": acc.company,
+                "balance": float(acc.balance),
+                "equity": float(acc.equity),
+                "margin": float(acc.margin),
+                "free_margin": float(acc.margin_free),
+                "leverage": int(acc.leverage),
+                "profit": float(acc.profit),
+            })
+        elif self.path.startswith("/api/mt5/positions"):
+            if not GLOBAL_SCALPER or not GLOBAL_SCALPER.is_connected:
+                self._send_json(200, {"positions": []})
+                return
+            positions = mt5.positions_get(symbol=GLOBAL_SCALPER.symbol) or []
+            pos_list = []
+            for p in positions:
+                pos_list.append({
+                    "ticket": int(p.ticket),
+                    "symbol": p.symbol,
+                    "type": "BUY" if p.type == mt5.ORDER_TYPE_BUY else "SELL",
+                    "volume": float(p.volume),
+                    "price_open": float(p.price_open),
+                    "price_current": float(p.price_current),
+                    "sl": float(p.sl),
+                    "tp": float(p.tp),
+                    "profit": float(p.profit),
+                })
+            self._send_json(200, {"positions": pos_list})
+        else:
+            self._send_json(404, {"error": "Not found"})
+
+    def do_POST(self):
+        if self.path.startswith("/api/mt5/order"):
+            content_len = int(self.headers.get("Content-Length", 0))
+            body = self.rfile.read(content_len) if content_len > 0 else b"{}"
+            payload = json.loads(body.decode("utf-8"))
+            
+            sym = payload.get("symbol", GLOBAL_SCALPER.symbol if GLOBAL_SCALPER else "XAUUSDm")
+            side = payload.get("side", "BUY").upper()
+            volume = float(payload.get("volume", 0.01))
+            sl = float(payload.get("sl", 0.0))
+            tp = float(payload.get("tp", 0.0))
+            
+            tick = mt5.symbol_info_tick(sym)
+            if not tick:
+                self._send_json(400, {"success": False, "error": f"Failed to get tick for {sym}"})
+                return
+            price = tick.ask if side == "BUY" else tick.bid
+            req = {
+                "action": mt5.TRADE_ACTION_DEAL,
+                "symbol": sym,
+                "volume": volume,
+                "type": mt5.ORDER_TYPE_BUY if side == "BUY" else mt5.ORDER_TYPE_SELL,
+                "price": price,
+                "sl": sl,
+                "tp": tp,
+                "deviation": 20,
+                "magic": 234000,
+                "comment": "Telegram Order",
+            }
+            res = mt5.order_send(req)
+            if res and res.retcode == mt5.TRADE_RETCODE_DONE:
+                self._send_json(200, {"success": True, "ticket": res.order, "price": price})
+            else:
+                self._send_json(400, {"success": False, "error": getattr(res, "comment", "Order Failed")})
+        elif self.path.startswith("/api/mt5/close"):
+            content_len = int(self.headers.get("Content-Length", 0))
+            body = self.rfile.read(content_len) if content_len > 0 else b"{}"
+            payload = json.loads(body.decode("utf-8"))
+            ticket = int(payload.get("ticket", 0))
+            positions = mt5.positions_get(ticket=ticket)
+            if not positions:
+                self._send_json(400, {"success": False, "error": f"Position {ticket} not found"})
+                return
+            pos = positions[0]
+            tick = mt5.symbol_info_tick(pos.symbol)
+            close_price = tick.bid if pos.type == mt5.ORDER_TYPE_BUY else tick.ask
+            req = {
+                "action": mt5.TRADE_ACTION_DEAL,
+                "position": ticket,
+                "symbol": pos.symbol,
+                "volume": pos.volume,
+                "type": mt5.ORDER_TYPE_SELL if pos.type == mt5.ORDER_TYPE_BUY else mt5.ORDER_TYPE_BUY,
+                "price": close_price,
+                "deviation": 20,
+                "magic": 234000,
+                "comment": "Close Position",
+            }
+            res = mt5.order_send(req)
+            if res and res.retcode == mt5.TRADE_RETCODE_DONE:
+                self._send_json(200, {"success": True})
+            else:
+                self._send_json(400, {"success": False, "error": getattr(res, "comment", "Close Failed")})
+        else:
+            self._send_json(404, {"error": "Not found"})
+
+
+def start_http_bridge_server(port: int = 8008):
+    try:
+        server = HTTPServer(("0.0.0.0", port), ScalperBridgeHTTPHandler)
+        t = threading.Thread(target=server.serve_forever, daemon=True)
+        t.start()
+        logger.info("[HTTP BRIDGE] Listening on 0.0.0.0:%d (Docker bridge ready)", port)
+    except Exception as e:
+        logger.warning("Could not bind HTTP Bridge on port %d: %s", port, e)
 
 
 # ─── Pure Python Technical Indicators ──────────────────────────────────────────
@@ -347,6 +486,7 @@ def main():
     print(f" Risk:     {args.risk:.2f}% | Dynamic Break-Even: +$1.00")
     print("=" * 65)
 
+    global GLOBAL_SCALPER
     scalper = PureScalper(
         login=args.login,
         password=args.password,
@@ -356,6 +496,10 @@ def main():
         sl=args.sl,
         risk=args.risk,
     )
+    GLOBAL_SCALPER = scalper
+
+    # Start HTTP Bridge Server for Docker/Telegram integration
+    start_http_bridge_server(8008)
 
     while not _SHUTDOWN:
         try:

@@ -46,30 +46,44 @@ class MT5BridgeService:
         self.bridge_url = MT5_BRIDGE_URL
 
     def _http_get(self, endpoint: str) -> Optional[Dict[str, Any]]:
-        if not self.bridge_url:
-            return None
-        try:
-            url = f"{self.bridge_url}{endpoint}"
-            req = urllib.request.Request(url, headers={"User-Agent": "EcoTradeLinux/1.0"})
-            with urllib.request.urlopen(req, timeout=5) as resp:
-                if resp.status == 200:
-                    return json.loads(resp.read().decode("utf-8"))
-        except Exception as e:
-            logger.debug("MT5 Bridge HTTP GET error", endpoint=endpoint, error=str(e))
+        candidates = []
+        if self.bridge_url:
+            candidates.append(self.bridge_url)
+        candidates.extend([
+            "http://172.17.0.1:8008",
+            "http://localhost:8008",
+            "http://host.docker.internal:8008",
+        ])
+        for base in candidates:
+            try:
+                url = f"{base.rstrip('/')}{endpoint}"
+                req = urllib.request.Request(url, headers={"User-Agent": "EcoTradeLinux/1.0"})
+                with urllib.request.urlopen(req, timeout=3) as resp:
+                    if resp.status == 200:
+                        return json.loads(resp.read().decode("utf-8"))
+            except Exception:
+                continue
         return None
 
     def _http_post(self, endpoint: str, payload: Dict[str, Any]) -> Optional[Dict[str, Any]]:
-        if not self.bridge_url:
-            return None
-        try:
-            url = f"{self.bridge_url}{endpoint}"
-            data = json.dumps(payload).encode("utf-8")
-            req = urllib.request.Request(url, data=data, headers={"Content-Type": "application/json", "User-Agent": "EcoTradeLinux/1.0"})
-            with urllib.request.urlopen(req, timeout=8) as resp:
-                if resp.status in (200, 201):
-                    return json.loads(resp.read().decode("utf-8"))
-        except Exception as e:
-            logger.debug("MT5 Bridge HTTP POST error", endpoint=endpoint, error=str(e))
+        candidates = []
+        if self.bridge_url:
+            candidates.append(self.bridge_url)
+        candidates.extend([
+            "http://172.17.0.1:8008",
+            "http://localhost:8008",
+            "http://host.docker.internal:8008",
+        ])
+        for base in candidates:
+            try:
+                url = f"{base.rstrip('/')}{endpoint}"
+                data = json.dumps(payload).encode("utf-8")
+                req = urllib.request.Request(url, data=data, headers={"Content-Type": "application/json", "User-Agent": "EcoTradeLinux/1.0"})
+                with urllib.request.urlopen(req, timeout=5) as resp:
+                    if resp.status in (200, 201):
+                        return json.loads(resp.read().decode("utf-8"))
+            except Exception:
+                continue
         return None
 
     def initialize_and_login(
