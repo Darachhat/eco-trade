@@ -66,17 +66,17 @@ export const MT5ScalperView: React.FC = () => {
     return () => clearInterval(interval);
   }, []);
 
-  const currentTicker = tickers[activeSymbol] || tickers['XAUUSDT'] || tickers['BTCUSDT'];
-  const exnessSymbol = activeSymbol === 'BTCUSDT' ? 'BTCUSDm' : 'XAUUSDm';
-  const curPrice = telemetry?.current_bid || currentTicker?.price || (activeSymbol === 'BTCUSDT' ? 78012.3 : 4380.05);
+  const currentTicker = tickers['XAUUSDT'] || tickers[activeSymbol];
+  const exnessSymbol = 'XAUUSDm';
+  const curPrice = telemetry?.current_bid || currentTicker?.price || 4380.05;
 
-  const spreadPoints = telemetry?.current_spread_points || (activeSymbol === 'BTCUSDT' ? 15 : 260);
-  const atrPoints = telemetry?.current_atr_points || (activeSymbol === 'BTCUSDT' ? 120 : 2569);
+  const spreadPoints = telemetry?.current_spread_points || 260;
+  const atrPoints = telemetry?.current_atr_points || 2569;
 
-  // Dynamic lot size formula
+  // Dynamic lot size formula for Gold (1 Lot = 100 oz, 1 pt = $0.10/lot)
   const equity = account?.balance || 10013.09;
   const riskMoney = equity * (riskPct / 100.0);
-  const pointValuePerLot = activeSymbol === 'BTCUSDT' ? 1.0 : 0.10;
+  const pointValuePerLot = 0.10;
   const calculatedLot = Math.max(0.01, Math.min(2.0, Number((riskMoney / (fixedSl * 100 * pointValuePerLot || 1)).toFixed(2))));
 
   const handleToggleScalper = async () => {
