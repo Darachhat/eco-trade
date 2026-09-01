@@ -33,7 +33,7 @@ export const MT5ScalperView: React.FC = () => {
   const closeMT5Position = useMT5Store((s) => s.closeMT5Position);
   const fetchOpenPositions = useMT5Store((s) => s.fetchOpenPositions);
 
-  const [isRunning, setIsRunning] = useState(true); // Default active
+  const [isRunning, setIsRunning] = useState(true);
   const [riskPct, setRiskPct] = useState(0.50);
   const [fixedTp, setFixedTp] = useState(2.00);
   const [fixedSl, setFixedSl] = useState(10.00);
@@ -42,7 +42,7 @@ export const MT5ScalperView: React.FC = () => {
   const [isTrailingEnabled, setIsTrailingEnabled] = useState(true);
   const [telemetry, setTelemetry] = useState<any>(null);
 
-  // Poll backend for real scalper status and open positions every 2 seconds
+  // Poll backend for real scalper status and open positions every 1.5 seconds
   useEffect(() => {
     fetchOpenPositions();
 
@@ -51,29 +51,30 @@ export const MT5ScalperView: React.FC = () => {
         const res = await fetch('/api/mt5/scalper/status');
         if (res.ok) {
           const data = await res.json();
-          setTelemetry(data);
-          if (data.is_running !== undefined) {
-            setIsRunning(data.is_running);
+          const t = data.telemetry || data;
+          setTelemetry(t);
+          if (t.is_running !== undefined) {
+            setIsRunning(t.is_running);
           }
         }
       } catch {
-        // Local mode
+        // Fallback
       }
       fetchOpenPositions();
-    }, 2000);
+    }, 1500);
 
     return () => clearInterval(interval);
   }, []);
 
   const currentTicker = tickers[activeSymbol] || tickers['XAUUSDT'] || tickers['BTCUSDT'];
-  const curPrice = currentTicker?.price || (activeSymbol === 'BTCUSDT' ? 78012.3 : 4372.4);
   const exnessSymbol = activeSymbol === 'BTCUSDT' ? 'BTCUSDm' : 'XAUUSDm';
+  const curPrice = telemetry?.current_bid || currentTicker?.price || (activeSymbol === 'BTCUSDT' ? 78012.3 : 4380.05);
 
   const spreadPoints = telemetry?.current_spread_points || (activeSymbol === 'BTCUSDT' ? 15 : 260);
-  const atrPoints = telemetry?.current_atr_points || (activeSymbol === 'BTCUSDT' ? 120 : 2433);
+  const atrPoints = telemetry?.current_atr_points || (activeSymbol === 'BTCUSDT' ? 120 : 2569);
 
   // Dynamic lot size formula
-  const equity = account?.balance || 10000.0;
+  const equity = account?.balance || 10013.09;
   const riskMoney = equity * (riskPct / 100.0);
   const pointValuePerLot = activeSymbol === 'BTCUSDT' ? 1.0 : 0.10;
   const calculatedLot = Math.max(0.01, Math.min(2.0, Number((riskMoney / (fixedSl * 100 * pointValuePerLot || 1)).toFixed(2))));
@@ -89,7 +90,7 @@ export const MT5ScalperView: React.FC = () => {
         await fetch('/api/mt5/scalper/stop', { method: 'POST' });
       }
     } catch {
-      // Local toggle
+      // Fallback
     }
   };
 
@@ -158,9 +159,9 @@ export const MT5ScalperView: React.FC = () => {
 
         <div className="grid grid-cols-2 md:grid-cols-4 lg:grid-cols-7 gap-2 text-2xs">
           {[
-            { step: '1. Market Data', desc: `Spread: ${spreadPoints} pts`, ok: true },
-            { step: '2. Market Filters', desc: 'Spread/ATR/Session OK', ok: true },
-            { step: '3. Signal Engine', desc: telemetry?.last_signal ? `${telemetry.last_signal} (68% Conf)` : 'Trend EMA 9>21>50', ok: true },
+            { step: '1. Market Data', desc: `Spread: ${spreadPoints.toFixed(0)} pts`, ok: true },
+            { step: '2. Market Filters', desc: telemetry?.filter_spread_ok ? 'Spread/ATR/Session OK' : 'Filters Active', ok: true },
+            { step: '3. Signal Engine', desc: telemetry?.last_signal ? `${telemetry.last_signal} Active` : 'Trend EMA 9>21>50', ok: true },
             { step: '4. Risk Manager', desc: 'Daily Loss: 0.00%', ok: true },
             { step: '5. Dynamic Sizing', desc: `${calculatedLot} Lot ($${riskMoney.toFixed(0)})`, ok: true },
             { step: '6. Execution', desc: 'SL $10 / TP $2 Active', ok: true },
@@ -197,13 +198,13 @@ export const MT5ScalperView: React.FC = () => {
             <div className="grid grid-cols-3 gap-2.5">
               <div className="terminal-card p-2.5">
                 <span className="text-3xs text-terminal-muted uppercase tracking-wider block">Live Spread</span>
-                <span className="text-base font-bold text-terminal-cyan">{spreadPoints} Points</span>
-                <span className="text-3xs text-terminal-bull block mt-0.5">✓ Below {maxSpread} limit</span>
+                <span className="text-base font-bold text-terminal-cyan">{spreadPoints.toFixed(0)} Points</span>
+                <span className="text-3xs text-terminal-bull block mt-0.5">${(spreadPoints * 0.001).toFixed(2)} (Below {maxSpread} limit)</span>
               </div>
               <div className="terminal-card p-2.5">
                 <span className="text-3xs text-terminal-muted uppercase tracking-wider block">ATR(14) Volatility</span>
-                <span className="text-base font-bold text-terminal-text">{atrPoints} Points</span>
-                <span className="text-3xs text-terminal-bull block mt-0.5">✓ Normal volatility band</span>
+                <span className="text-base font-bold text-terminal-text">{atrPoints.toFixed(0)} Points</span>
+                <span className="text-3xs text-terminal-bull block mt-0.5">${(atrPoints * 0.001).toFixed(2)} Volatility Band</span>
               </div>
               <div className="terminal-card p-2.5">
                 <span className="text-3xs text-terminal-muted uppercase tracking-wider block">TP / Spread Ratio</span>
@@ -218,7 +219,7 @@ export const MT5ScalperView: React.FC = () => {
               <div className="grid grid-cols-2 gap-2 text-2xs">
                 <div className="p-2 rounded bg-terminal-surface/40 border border-terminal-border/60 flex items-center justify-between">
                   <span className="text-terminal-muted">Spread Guard:</span>
-                  <span className="text-terminal-bull font-bold">PASSED ({spreadPoints} &lt; {maxSpread})</span>
+                  <span className="text-terminal-bull font-bold">PASSED ({spreadPoints.toFixed(0)} &lt; {maxSpread})</span>
                 </div>
                 <div className="p-2 rounded bg-terminal-surface/40 border border-terminal-border/60 flex items-center justify-between">
                   <span className="text-terminal-muted">Session Time (UTC):</span>

@@ -1,6 +1,6 @@
 """
-app/api/routers.py
-──────────────────
+app/api/routers/core.py
+───────────────────────
 Production API routes: Health, Market, Signals, Performance, Risk, Journal, Backtest, Monitoring.
 """
 
@@ -231,6 +231,7 @@ async def run_backtest(request: BacktestRequest):
     """
     Execute a backtest on historical Bybit market data.
     """
+    import pandas as pd
     from app.exchange.bybit.client import bybit_client
 
     start_date = datetime.utcnow() - timedelta(days=request.days_back)

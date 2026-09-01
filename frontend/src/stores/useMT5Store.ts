@@ -191,9 +191,8 @@ export const useMT5Store = create<MT5State>((set, get) => ({
       const res = await fetch(`${BACKEND_URL}/api/mt5/positions`);
       if (res.ok) {
         const data = await res.json();
-        if (Array.isArray(data)) {
-          set({ positions: data });
-        }
+        const posArray = data.positions || (Array.isArray(data) ? data : []);
+        set({ positions: posArray });
       }
     } catch {
       // Fallback
