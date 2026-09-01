@@ -52,9 +52,12 @@ class ScalperConfig(BaseModel):
     max_lot: float = Field(default=2.00, description="Maximum allowed lot size")
     min_lot: float = Field(default=0.01, description="Minimum allowed lot size")
 
-    # TP & SL multipliers based on ATR(14)
-    tp_atr_multiplier: float = Field(default=1.20, description="Take profit distance = ATR * multiplier")
-    sl_atr_multiplier: float = Field(default=1.00, description="Stop loss distance = ATR * multiplier")
+    # TP & SL target distances (Fast $1.00 Scalping)
+    fixed_tp_dollars: float = Field(default=1.00, description="Fixed price distance for Take Profit ($1.00 fast scalp)")
+    fixed_sl_dollars: float = Field(default=1.00, description="Fixed price distance for Stop Loss ($1.00 risk)")
+    use_fixed_targets: bool = Field(default=True, description="True for fast $1.00 scalps, False for ATR multiplier")
+    tp_atr_multiplier: float = Field(default=0.40, description="Take profit distance = ATR * multiplier")
+    sl_atr_multiplier: float = Field(default=0.40, description="Stop loss distance = ATR * multiplier")
 
     # Market Filters (points calibrated for 3-digit Gold point 0.001)
     max_spread_points: float = Field(default=400.0, description="Max allowed spread in points (e.g. 400 pts = $0.40)")
@@ -517,9 +520,13 @@ class MT5ScalpingEngine:
                     point = data["point"]
                     atr_price = data["atr_price"]
 
-                    # Sizing & SL/TP based on ATR
-                    sl_points = data["atr_points"] * self.config.sl_atr_multiplier
-                    tp_points = data["atr_points"] * self.config.tp_atr_multiplier
+                    # Sizing & SL/TP based on fixed $1.00 fast target or ATR
+                    if self.config.use_fixed_targets:
+                        sl_points = (self.config.fixed_sl_dollars / point)
+                        tp_points = (self.config.fixed_tp_dollars / point)
+                    else:
+                        sl_points = data["atr_points"] * self.config.sl_atr_multiplier
+                        tp_points = data["atr_points"] * self.config.tp_atr_multiplier
 
                     lot_size = self._calculate_lot_size(data, sl_points)
 
