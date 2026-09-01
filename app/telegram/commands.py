@@ -387,17 +387,17 @@ async def cmd_scalp(update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:
     sub = args[0].lower() if args else ""
 
     if sub == "start":
-        res = mt5_scalper.start()
+        res = mt5_service._http_post("/api/mt5/scalper/start", {}) or mt5_scalper.start()
         await update.message.reply_text(
-            f"🚀 <b>Scalper Engine Started!</b>\n{res.get('message', '')}",
+            f"🚀 <b>Scalper Engine Started!</b>\n{res.get('message', 'Autonomous scalper active on XAUUSDm')}",
             parse_mode="HTML",
         )
         return
 
     if sub == "stop":
-        res = mt5_scalper.stop()
+        res = mt5_service._http_post("/api/mt5/scalper/stop", {}) or mt5_scalper.stop()
         await update.message.reply_text(
-            f"⏹️ <b>Scalper Engine Stopped!</b>\n{res.get('message', '')}",
+            f"⏹️ <b>Scalper Engine Stopped!</b>\n{res.get('message', 'Scalper stopped')}",
             parse_mode="HTML",
         )
         return
@@ -407,29 +407,14 @@ async def cmd_scalp(update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:
         volume = float(args[1]) if len(args) > 1 and args[1].replace(".", "").isdigit() else 0.01
         sym = "XAUUSDm"
 
-        tick = mt5_service.get_tick(sym)
-        if not tick or not tick.get("ask"):
-            await update.message.reply_text("❌ Failed to fetch live tick from MT5 broker.", parse_mode="HTML")
-            return
-
-        ask = tick["ask"]
-        bid = tick["bid"]
-        if side == "BUY":
-            sl = round(ask - 10.0, 3)
-            tp = round(ask + 2.0, 3)
-        else:
-            sl = round(bid + 10.0, 3)
-            tp = round(bid - 2.0, 3)
-
-        res = mt5_service.execute_order(symbol=sym, side=side, volume=volume, sl=sl, tp=tp, comment="Telegram Scalp")
+        res = mt5_service.execute_order(symbol=sym, side=side, volume=volume, sl=10.0, tp=2.0, comment="Telegram Scalp")
         if res.get("success"):
             await update.message.reply_text(
                 f"✅ <b>Instant Scalp {side} Placed!</b>\n"
                 f"• Ticket: <code>#{res.get('ticket')}</code>\n"
                 f"• Symbol: <code>{sym}</code> ({volume} Lot)\n"
                 f"• Price: <code>${res.get('price', 0):.2f}</code>\n"
-                f"• SL: <code>${sl:.2f} (-$10)</code>\n"
-                f"• TP: <code>${tp:.2f} (+$2)</code>",
+                f"• Target: <code>SL -$10.00 / TP +$2.00</code>",
                 parse_mode="HTML",
             )
         else:
@@ -449,7 +434,8 @@ async def cmd_scalp(update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:
         return
 
     # Default: Show live status & open positions
-    telemetry = mt5_scalper.telemetry.model_dump()
+    remote_status = mt5_service._http_get("/api/mt5/scalper/status")
+    telemetry = (remote_status.get("telemetry") if remote_status and isinstance(remote_status, dict) else remote_status) or mt5_scalper.telemetry.model_dump()
     positions = mt5_service.get_open_positions()
     msg = format_scalper_status(telemetry, positions)
     await update.message.reply_text(msg, parse_mode="HTML")
