@@ -42,6 +42,7 @@ class Settings(BaseSettings):
     bybit_api_key: str = ""
     bybit_api_secret: str = ""
     bybit_testnet: bool = True
+    bybit_category: MarketCategory = MarketCategory.LINEAR
     bybit_symbols: str = "BTCUSDT,XAUTUSDT"
     bybit_timeframes: str = "1,5,15,60,240"
 
