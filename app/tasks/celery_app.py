@@ -58,6 +58,12 @@ def create_celery() -> Celery:
             "task": "tasks.send_daily_report",
             "schedule": crontab(hour=8, minute=0),
         },
+
+        # Continuous automated AI market scan and signal broadcast (runs every minute)
+        "auto-scan-markets-signals": {
+            "task": "tasks.scan_and_generate_signals",
+            "schedule": crontab(minute="*"),
+        },
     }
 
     return app
