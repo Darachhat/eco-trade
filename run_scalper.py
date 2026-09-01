@@ -279,10 +279,28 @@ class PureScalper:
         init_ok = False
         if valid_path:
             logger.info("Found MT5 terminal binary: %s", valid_path)
+            term_dir = os.path.dirname(valid_path)
+            ini_path = os.path.join(term_dir, "startup.ini")
             try:
-                # Pre-spawn terminal in portable mode if not already running
-                subprocess.Popen([valid_path, "/portable"])
-                time.sleep(3)
+                with open(ini_path, "w", encoding="utf-8") as f:
+                    f.write(
+                        f"[Common]\n"
+                        f"Login={int(self.login)}\n"
+                        f"Password={self.password}\n"
+                        f"Server={self.server}\n"
+                        f"NewsEnable=0\n"
+                        f"[Experts]\n"
+                        f"AllowLiveTrading=1\n"
+                        f"AllowDllImport=1\n"
+                        f"Enabled=1\n"
+                    )
+            except Exception as e:
+                logger.debug("Could not write startup.ini: %s", e)
+
+            try:
+                # Pre-spawn terminal with config to bypass wizard dialog
+                subprocess.Popen([valid_path, f"/config:{ini_path}", "/portable"])
+                time.sleep(5)
             except Exception as e:
                 logger.debug("Subprocess launch note: %s", e)
 
