@@ -185,8 +185,8 @@ export const useMT5Store = create<MT5State>((set, get) => ({
         symbol: symbol.includes('BTC') ? 'BTCUSDm' : 'XAUUSDm',
         type: mt5Side,
         volume,
-        price_open: symbol.includes('BTC') ? 78680 : 4436,
-        price_current: symbol.includes('BTC') ? 78680 : 4436,
+        price_open: symbol.includes('BTC') ? 78012 : 4372.04,
+        price_current: symbol.includes('BTC') ? 78012 : 4372.04,
         sl: sl || 0,
         tp: tp || 0,
         profit: 0,
@@ -199,6 +199,20 @@ export const useMT5Store = create<MT5State>((set, get) => ({
       }));
 
       return { success: true, ticket: simulatedTicket };
+    }
+  },
+
+  fetchOpenPositions: async () => {
+    try {
+      const res = await fetch(`${BACKEND_URL}/api/mt5/positions`);
+      if (res.ok) {
+        const data = await res.json();
+        if (Array.isArray(data)) {
+          set({ positions: data });
+        }
+      }
+    } catch {
+      // Fallback
     }
   },
 
