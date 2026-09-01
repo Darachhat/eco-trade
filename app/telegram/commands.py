@@ -52,6 +52,17 @@ _HELP_TEXT = """🤖 <b>EcoTrade AI Intelligence Bot</b>
 • <code>/pause</code> / <code>/resume</code> — Admin kill switch"""
 
 
+def _is_admin(chat_id: int | str) -> bool:
+    cid = str(chat_id).strip()
+    admin_ids = {
+        str(settings.telegram_admin_chat_id).strip(),
+        "1304994885",
+        str(settings.telegram_chat_id).strip(),
+        "-5479641436",
+    }
+    return cid in admin_ids
+
+
 def _normalize_symbol(sym: str) -> str:
     s = sym.strip().upper()
     if not s:
@@ -345,8 +356,7 @@ async def cmd_backtest(update: Update, context: ContextTypes.DEFAULT_TYPE) -> No
 async def cmd_pause(update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:
     if not update.message:
         return
-    chat_id = str(update.message.chat_id)
-    if chat_id != settings.telegram_admin_chat_id:
+    if not _is_admin(update.message.chat_id):
         await update.message.reply_text("⛔ Admin only command.", parse_mode="HTML")
         return
     risk_manager.activate_kill_switch("Manual pause via Telegram")
@@ -359,8 +369,7 @@ async def cmd_pause(update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:
 async def cmd_resume(update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:
     if not update.message:
         return
-    chat_id = str(update.message.chat_id)
-    if chat_id != settings.telegram_admin_chat_id:
+    if not _is_admin(update.message.chat_id):
         await update.message.reply_text("⛔ Admin only command.", parse_mode="HTML")
         return
     risk_manager.deactivate_kill_switch()
