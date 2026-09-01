@@ -1,0 +1,75 @@
+@tailwind base;
+@tailwind components;
+@tailwind utilities;
+
+@layer base {
+  :root {
+    color-scheme: dark;
+  }
+
+  body {
+    @apply bg-terminal-bg text-terminal-text font-sans antialiased text-xs;
+  }
+
+  /* Custom institutional thin scrollbar */
+  ::-webkit-scrollbar {
+    width: 5px;
+    height: 5px;
+  }
+
+  ::-webkit-scrollbar-track {
+    background: #080a0f;
+  }
+
+  ::-webkit-scrollbar-thumb {
+    background: #21262d;
+    border-radius: 2px;
+  }
+
+  ::-webkit-scrollbar-thumb:hover {
+    background: #30363d;
+  }
+}
+
+@layer utilities {
+  .font-mono-nums {
+    font-variant-numeric: tabular-nums lining-nums;
+  }
+
+  .terminal-panel {
+    @apply bg-terminal-panel border border-terminal-border rounded-sm shadow-terminal-card;
+  }
+
+  .terminal-card {
+    @apply bg-terminal-card border border-terminal-border/80 rounded-sm;
+  }
+
+  .terminal-header {
+    @apply px-3 py-2 bg-terminal-surface/70 border-b border-terminal-border flex items-center justify-between text-2xs uppercase tracking-widest font-semibold text-terminal-muted;
+  }
+
+  .terminal-table {
+    @apply w-full text-left text-xs border-collapse font-mono-nums;
+  }
+
+  .terminal-table th {
+    @apply py-1.5 px-2.5 text-2xs uppercase tracking-wider text-terminal-muted font-semibold bg-terminal-surface/40 border-b border-terminal-border sticky top-0;
+  }
+
+  .terminal-table td {
+    @apply py-1.5 px-2.5 border-b border-terminal-borderSubtle/60 text-xs;
+  }
+
+  .terminal-table tr:hover td {
+    @apply bg-terminal-elevated/40;
+  }
+
+  .blinking-dot {
+    animation: blink 1.2s infinite;
+  }
+
+  @keyframes blink {
+    0%, 100% { opacity: 1; }
+    50% { opacity: 0.3; }
+  }
+}

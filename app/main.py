@@ -23,6 +23,7 @@ from app.api.routers import (
     router_risk,
     router_signals,
 )
+from app.api.routers.mt5 import router_mt5
 from app.api.ws import manager as ws_manager, router_ws
 from app.core.config import settings
 from app.core.logging import get_logger
@@ -154,6 +155,7 @@ def create_app() -> FastAPI:
     app.include_router(router_journal)
     app.include_router(router_backtest)
     app.include_router(router_metrics)
+    app.include_router(router_mt5)
 
     # WebSocket Routers
     app.include_router(router_ws)

@@ -120,6 +120,19 @@ services:
       - api
     restart: unless-stopped
 
+  # ─── Frontend UI (React + Vite + Nginx) ─────
+  frontend:
+    build:
+      context: ./frontend
+      dockerfile: Dockerfile
+    image: ecotrade_frontend:latest
+    container_name: ecotrade_frontend
+    ports:
+      - "3000:80"
+    depends_on:
+      - api
+    restart: unless-stopped
+
 volumes:
   postgres_data:
   redis_data:
