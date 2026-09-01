@@ -176,29 +176,12 @@ export const useMT5Store = create<MT5State>((set, get) => ({
       }
 
       const data = await response.json();
+      // Refetch real positions after order
+      get().fetchOpenPositions();
       return { success: true, ticket: data.ticket };
     } catch (err: any) {
-      // Local fallback execution for frontend preview
-      const simulatedTicket = Math.floor(100000000 + Math.random() * 900000000);
-      const newPos: MT5Position = {
-        ticket: simulatedTicket,
-        symbol: symbol.includes('BTC') ? 'BTCUSDm' : 'XAUUSDm',
-        type: mt5Side,
-        volume,
-        price_open: symbol.includes('BTC') ? 78012 : 4372.04,
-        price_current: symbol.includes('BTC') ? 78012 : 4372.04,
-        sl: sl || 0,
-        tp: tp || 0,
-        profit: 0,
-        time: new Date().toISOString(),
-        comment: comment || 'EcoTrade Exness MT5',
-      };
-
-      set((state) => ({
-        positions: [newPos, ...state.positions],
-      }));
-
-      return { success: true, ticket: simulatedTicket };
+      console.error('[useMT5Store] Real Order Execution Error:', err);
+      return { success: false, error: err.message || 'Execution failed on MT5 broker' };
     }
   },
 
