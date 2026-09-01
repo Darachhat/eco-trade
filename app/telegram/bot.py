@@ -100,13 +100,40 @@ class TelegramBot:
         """Send to admin chat only."""
         await self.send_message(text, settings.telegram_admin_chat_id)
 
-    async def start_polling(self) -> None:
-        """Start the bot in polling mode."""
+    async def start(self) -> None:
+        """Initialize and start the bot polling in an existing event loop."""
+        if not settings.telegram_bot_token:
+            logger.warning("TELEGRAM_BOT_TOKEN not configured. Skipping bot polling.")
+            return
         if not self._app:
             self.build()
-        logger.info("Starting Telegram bot polling")
-        await self._app.run_polling()  # type: ignore[union-attr]
+        if self._app:
+            logger.info("Initializing and starting Telegram bot polling")
+            await self._app.initialize()
+            await self._app.start()
+            if self._app.updater:
+                await self._app.updater.start_polling(drop_pending_updates=True)
+            logger.info("Telegram bot polling started successfully")
+
+    async def stop(self) -> None:
+        """Stop and shutdown the bot."""
+        if self._app:
+            logger.info("Stopping Telegram bot")
+            try:
+                if self._app.updater and self._app.updater.running:
+                    await self._app.updater.stop()
+                if self._app.running:
+                    await self._app.stop()
+                await self._app.shutdown()
+                logger.info("Telegram bot stopped")
+            except Exception as e:
+                logger.warning("Error during Telegram bot shutdown", error=str(e))
+
+    async def start_polling(self) -> None:
+        """Start the bot in standalone polling mode."""
+        await self.start()
 
 
 # Singleton
 telegram_bot = TelegramBot()
+

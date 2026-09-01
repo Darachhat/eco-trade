@@ -8,13 +8,14 @@ from __future__ import annotations
 
 from collections.abc import AsyncGenerator
 
+from sqlalchemy import create_engine as create_sync_engine
 from sqlalchemy.ext.asyncio import (
     AsyncEngine,
     AsyncSession,
     async_sessionmaker,
     create_async_engine,
 )
-from sqlalchemy.orm import DeclarativeBase
+from sqlalchemy.orm import DeclarativeBase, Session, sessionmaker
 
 from app.core.config import settings
 from app.core.logging import get_logger
@@ -49,6 +50,32 @@ AsyncSessionLocal: async_sessionmaker[AsyncSession] = async_sessionmaker(
 )
 
 
+def create_sync_db_engine():
+    return create_sync_engine(
+        settings.sync_database_url,
+        echo=settings.app_env == "development",
+        pool_size=5,
+        max_overflow=10,
+        pool_pre_ping=True,
+        pool_recycle=3600,
+    )
+
+
+sync_engine = create_sync_db_engine()
+
+SyncSessionLocal: sessionmaker[Session] = sessionmaker(
+    bind=sync_engine,
+    expire_on_commit=False,
+    autocommit=False,
+    autoflush=False,
+)
+
+
+def get_sync_session() -> Session:
+    """Synchronous session for Celery tasks or background scripts."""
+    return SyncSessionLocal()
+
+
 async def get_db() -> AsyncGenerator[AsyncSession, None]:
     """FastAPI dependency for injecting a database session."""
     async with AsyncSessionLocal() as session:
@@ -75,3 +102,4 @@ async def drop_all_tables() -> None:
     async with engine.begin() as conn:
         await conn.run_sync(Base.metadata.drop_all)
     logger.warning("All database tables dropped")
+

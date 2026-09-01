@@ -87,6 +87,15 @@ async def lifespan(app: FastAPI) -> AsyncGenerator[None, None]:
         ws_task = asyncio.create_task(client_ws.start())
         logger.info("WebSocket feed started", symbols=settings.symbols_list)
 
+    # Start Telegram Bot Polling (if token configured)
+    if settings.telegram_bot_token:
+        try:
+            from app.telegram.bot import telegram_bot
+            await telegram_bot.start()
+            logger.info("Telegram bot polling started")
+        except Exception as e:
+            logger.error("Failed to start Telegram bot polling", error=str(e))
+
     logger.info("EcoTrade startup complete")
 
     yield  # Application running
@@ -100,8 +109,15 @@ async def lifespan(app: FastAPI) -> AsyncGenerator[None, None]:
         except asyncio.CancelledError:
             pass
 
+    if settings.telegram_bot_token:
+        try:
+            from app.telegram.bot import telegram_bot
+            await telegram_bot.stop()
+        except Exception:
+            pass
+
     try:
-        from app.database.session import async_engine
+        from app.database.session import engine as async_engine
         await async_engine.dispose()
     except Exception:
         pass

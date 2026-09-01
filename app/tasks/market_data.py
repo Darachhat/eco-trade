@@ -14,7 +14,7 @@ logger = get_logger("market")
 
 
 @shared_task(name="tasks.sync_historical_candles", bind=True, max_retries=3)
-def sync_historical_candles(self, symbol: str, timeframe: str, days_back: int = 365):
+def sync_historical_candles(self, symbol: str = "BTCUSDT", timeframe: str = "1", days_back: int = 30):
     """
     Celery task: Download and persist historical candles from Bybit.
     Runs on startup and daily for data refresh.
@@ -22,10 +22,10 @@ def sync_historical_candles(self, symbol: str, timeframe: str, days_back: int = 
     import asyncio
     from datetime import datetime, timedelta
 
+    from app.database.models import MarketData
     from app.database.repositories import MarketDataRepository
-    from app.database.session import get_sync_session
+    from app.database.session import AsyncSessionLocal
     from app.exchange.bybit.client import BybitClient
-    from app.features.pipeline import FeaturePipeline, candles_to_dataframe
 
     logger.info("Syncing historical candles", symbol=symbol, timeframe=timeframe, days_back=days_back)
     try:
@@ -35,12 +35,29 @@ def sync_historical_candles(self, symbol: str, timeframe: str, days_back: int = 
             client = BybitClient()
             candles = await client.get_historical_candles(symbol, timeframe, start)
             logger.info("Downloaded candles", symbol=symbol, timeframe=timeframe, count=len(candles))
+
+            if candles:
+                async with AsyncSessionLocal() as db:
+                    repo = MarketDataRepository(db)
+                    for c in candles:
+                        candle_obj = MarketData(
+                            symbol=c.symbol,
+                            timeframe=c.timeframe,
+                            open_time=c.open_time,
+                            close_time=c.close_time,
+                            open=c.open,
+                            high=c.high,
+                            low=c.low,
+                            close=c.close,
+                            volume=c.volume,
+                            turnover=c.turnover,
+                            exchange_timestamp=c.exchange_timestamp,
+                        )
+                        await repo.upsert_candle(candle_obj)
+                    await db.commit()
             return candles
 
         candles = asyncio.run(run())
-
-        # Persist to DB
-        # (Full DB persistence via repo would be wired here)
         logger.info("Historical sync complete", symbol=symbol, timeframe=timeframe)
         return {"symbol": symbol, "timeframe": timeframe, "count": len(candles)}
 
