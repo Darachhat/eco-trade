@@ -115,20 +115,27 @@ async def cmd_market(update: Update, context: ContextTypes.DEFAULT_TYPE) -> None
 
         funding = await client.get_funding_rate(symbol)
         price = ticker.last_price
-        pct_change = ticker.price_24h_pcnt * 100
+        pct_change = (ticker.price_change_24h * 100) if ticker.price_change_24h is not None else 0.0
         change_badge = "🟢" if pct_change >= 0 else "🔴"
         funding_rate_pct = (funding.funding_rate * 100) if funding else 0.0
+
+        high_str = f"${ticker.high_24h:,.2f}" if ticker.high_24h is not None else "N/A"
+        low_str = f"${ticker.low_24h:,.2f}" if ticker.low_24h is not None else "N/A"
+        vol_str = f"{ticker.volume_24h:,.2f}" if ticker.volume_24h is not None else "N/A"
+        turnover_str = f"${ticker.turnover_24h:,.0f}" if ticker.turnover_24h is not None else "N/A"
+        mark_str = f"${ticker.mark_price:,.2f}" if ticker.mark_price is not None else "N/A"
+        index_str = f"${ticker.index_price:,.2f}" if ticker.index_price is not None else "N/A"
 
         msg = f"""📊 <b>MARKET SNAPSHOT: {symbol}</b>
 ───────────────────────
 💰 <b>Price:</b> <code>${price:,.2f}</code> ({change_badge} <code>{pct_change:+.2f}%</code> 24h)
-📈 <b>24h High:</b> <code>${ticker.high_price_24h:,.2f}</code>
-📉 <b>24h Low:</b> <code>${ticker.low_price_24h:,.2f}</code>
-📦 <b>24h Volume:</b> <code>{ticker.volume_24h:,.2f}</code>
-💵 <b>24h Turnover:</b> <code>${ticker.turnover_24h:,.0f}</code>
+📈 <b>24h High:</b> <code>{high_str}</code>
+📉 <b>24h Low:</b> <code>{low_str}</code>
+📦 <b>24h Volume:</b> <code>{vol_str}</code>
+💵 <b>24h Turnover:</b> <code>{turnover_str}</code>
 
-⚡ <b>Mark Price:</b> <code>${ticker.mark_price:,.2f}</code>
-🎯 <b>Index Price:</b> <code>${ticker.index_price:,.2f}</code>
+⚡ <b>Mark Price:</b> <code>{mark_str}</code>
+🎯 <b>Index Price:</b> <code>{index_str}</code>
 🕒 <b>Funding Rate:</b> <code>{funding_rate_pct:+.4f}%</code>
 ───────────────────────
 ⏰ <i>{datetime.utcnow().strftime('%Y-%m-%d %H:%M:%S')} UTC</i>"""
