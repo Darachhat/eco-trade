@@ -48,6 +48,19 @@ _HELP_TEXT = """🤖 <b>EcoTrade AI Intelligence Bot</b>
 • <code>/market ETHUSDT</code>"""
 
 
+def _normalize_symbol(sym: str) -> str:
+    s = sym.strip().upper()
+    if not s:
+        return "BTCUSDT"
+    if "/" in s:
+        s = s.replace("/", "")
+    if s in ("XAU", "GOLD"):
+        return "XAUUSDT"
+    if not any(s.endswith(q) for q in ("USDT", "USDC", "USD", "PERP")):
+        return f"{s}USDT"
+    return s
+
+
 async def cmd_start(update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:
     if not update.message:
         return
@@ -79,7 +92,8 @@ async def cmd_market(update: Update, context: ContextTypes.DEFAULT_TYPE) -> None
     if not update.message:
         return
     args = context.args or []
-    symbol = args[0].upper() if args else "BTCUSDT"
+    raw_sym = args[0] if args else "BTCUSDT"
+    symbol = _normalize_symbol(raw_sym)
     status_msg = await update.message.reply_text(
         f"📈 Fetching market data for <b>{symbol}</b>...",
         parse_mode="HTML",
@@ -128,7 +142,8 @@ async def cmd_signal(update: Update, context: ContextTypes.DEFAULT_TYPE) -> None
     if not update.message:
         return
     args = context.args or []
-    symbol = args[0].upper() if args else "BTCUSDT"
+    raw_sym = args[0] if args else "BTCUSDT"
+    symbol = _normalize_symbol(raw_sym)
     timeframe = args[1] if len(args) > 1 else "15"
 
     status_msg = await update.message.reply_text(

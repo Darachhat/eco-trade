@@ -140,6 +140,7 @@ def format_signal(signal: TradeSignal, signal_id: str, mode: str = "PAPER TRADIN
         name_padded = f"{m_name[:13]:<13}"
         model_lines.append(f"{name_padded} {icon} {d_clean:<5} {c:>3.0f}%")
     models_block = "\n".join(model_lines) if model_lines else "No model details"
+    models_block_escaped = html.escape(models_block)
 
     # 8. Key Drivers
     positives = signal.explanation.get("positives", []) if signal.explanation else []
@@ -147,9 +148,9 @@ def format_signal(signal: TradeSignal, signal_id: str, mode: str = "PAPER TRADIN
     driver_lines = []
     if positives or negatives:
         for p in positives[:4]:
-            driver_lines.append(f"• {p}")
+            driver_lines.append(f"• {html.escape(str(p))}")
         for n in negatives[:2]:
-            driver_lines.append(f"• ⚠️ {n}")
+            driver_lines.append(f"• ⚠️ {html.escape(str(n))}")
     else:
         driver_lines = [
             f"• GMM Regime: <code>{regime_str}</code> confirmed",
@@ -177,7 +178,7 @@ def format_signal(signal: TradeSignal, signal_id: str, mode: str = "PAPER TRADIN
 
 🤖 <b>MODEL CONSENSUS:</b>
 <pre>
-{models_block}
+{models_block_escaped}
 </pre>
 💡 <b>KEY DRIVERS:</b>
 {drivers_block}
@@ -189,11 +190,12 @@ def format_signal(signal: TradeSignal, signal_id: str, mode: str = "PAPER TRADIN
 
 def format_no_trade(signal: TradeSignal) -> str:
     """Format a NO_TRADE notification."""
+    reason = html.escape(signal.no_trade_reason or "Confidence / Risk filter not met")
     return (
         f"⚪ <b>ECOTRADE — NO TRADE</b>\n"
         f"━━━━━━━━━━━━━━━━━━━━━━\n"
-        f"Asset: <code>#{signal.symbol}</code> ({signal.timeframe}M)\n"
-        f"Reason: <i>{signal.no_trade_reason or 'Confidence / Risk filter not met'}</i>\n"
+        f"Asset: <code>#{html.escape(signal.symbol)}</code> ({html.escape(str(signal.timeframe))}M)\n"
+        f"Reason: <i>{reason}</i>\n"
         f"Time: <code>{signal.generated_at.strftime('%Y-%m-%d %H:%M')} UTC</code>"
     )
 
