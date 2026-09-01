@@ -45,6 +45,7 @@ interface MT5State {
   setDefaultLotSize: (lot: number) => void;
   connectMT5: (customCreds?: Partial<MT5State['credentials']>) => Promise<boolean>;
   fetchStatus: () => Promise<void>;
+  fetchOpenPositions: () => Promise<void>;
   executeMT5Order: (params: {
     symbol: string;
     side: 'BUY' | 'SELL' | 'LONG' | 'SHORT';
