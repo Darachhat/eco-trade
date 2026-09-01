@@ -16,9 +16,13 @@ from telegram.ext import ContextTypes
 from app.core.config import settings
 from app.core.logging import get_logger
 from app.risk.manager import risk_manager
+from app.services.mt5_scalper import mt5_scalper
+from app.services.mt5_service import mt5_service
 from app.telegram.formatter import (
     format_model_performance,
+    format_mt5_account,
     format_risk_status,
+    format_scalper_status,
     format_signal,
     format_system_status,
 )
@@ -27,25 +31,25 @@ logger = get_logger("telegram")
 
 _HELP_TEXT = """🤖 <b>EcoTrade AI Intelligence Bot</b>
 
-<b>Trading Commands:</b>
-• <code>/signal [SYMBOL] [TIMEFRAME]</code> — Run AI model ensemble & generate signal
-• <code>/market [SYMBOL]</code> — Live market price, 24h metrics & funding
-• <code>/positions</code> — Show active paper / live trading positions
-• <code>/risk</code> — Risk manager status, drawdown & exposure
+<b>⚡ MT5 Scalping Commands:</b>
+• <code>/scalp</code> — Live scalper status, signals & active trades
+• <code>/scalp start</code> — Start autonomous high-frequency scalper
+• <code>/scalp stop</code> — Stop autonomous scalper
+• <code>/scalp buy [LOT]</code> — Instant BUY with SL -$10 / TP +$2
+• <code>/scalp sell [LOT]</code> — Instant SELL with SL +$10 / TP -$2
+• <code>/mt5</code> — Exness MT5 account balance & equity
+• <code>/closeall</code> — Liquidate all open MT5 positions
 
-<b>Intelligence & Performance:</b>
+<b>Crypto Quantitative Commands:</b>
+• <code>/signal [SYMBOL] [TIMEFRAME]</code> — AI model ensemble signal
+• <code>/market [SYMBOL]</code> — Live price, 24h stats & funding
+• <code>/positions</code> — Active trading positions
+• <code>/risk</code> — Risk status, daily loss & drawdown
 • <code>/models</code> — AI model leaderboard & accuracy
-• <code>/performance</code> — Daily/Weekly trade stats & metrics
-• <code>/journal</code> — Recent trading outcomes & journal
-• <code>/status</code> — System uptime, WebSocket state & mode
-
-<b>Controls (Admin Only):</b>
-• <code>/pause</code> — Activate kill-switch / pause trading
-• <code>/resume</code> — Deactivate kill-switch / resume trading
-
-<i>Examples:</i>
-• <code>/signal BTCUSDT 15</code>
-• <code>/market ETHUSDT</code>"""
+• <code>/performance</code> — Win rate & Profit Factor
+• <code>/journal</code> — Recent trade journal logs
+• <code>/status</code> — System uptime & status
+• <code>/pause</code> / <code>/resume</code> — Admin kill switch"""
 
 
 def _normalize_symbol(sym: str) -> str:
@@ -364,3 +368,103 @@ async def cmd_resume(update: Update, context: ContextTypes.DEFAULT_TYPE) -> None
         "▶️ <b>Signal generation & execution RESUMED</b>.",
         parse_mode="HTML",
     )
+
+
+async def cmd_scalp(update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:
+    if not update.message:
+        return
+
+    args = context.args or []
+    sub = args[0].lower() if args else ""
+
+    if sub == "start":
+        res = mt5_scalper.start()
+        await update.message.reply_text(
+            f"🚀 <b>Scalper Engine Started!</b>\n{res.get('message', '')}",
+            parse_mode="HTML",
+        )
+        return
+
+    if sub == "stop":
+        res = mt5_scalper.stop()
+        await update.message.reply_text(
+            f"⏹️ <b>Scalper Engine Stopped!</b>\n{res.get('message', '')}",
+            parse_mode="HTML",
+        )
+        return
+
+    if sub in ("buy", "sell"):
+        side = sub.upper()
+        volume = float(args[1]) if len(args) > 1 and args[1].replace(".", "").isdigit() else 0.01
+        sym = "XAUUSDm"
+
+        tick = mt5_service.get_tick(sym)
+        if not tick or not tick.get("ask"):
+            await update.message.reply_text("❌ Failed to fetch live tick from MT5 broker.", parse_mode="HTML")
+            return
+
+        ask = tick["ask"]
+        bid = tick["bid"]
+        if side == "BUY":
+            sl = round(ask - 10.0, 3)
+            tp = round(ask + 2.0, 3)
+        else:
+            sl = round(bid + 10.0, 3)
+            tp = round(bid - 2.0, 3)
+
+        res = mt5_service.execute_order(symbol=sym, side=side, volume=volume, sl=sl, tp=tp, comment="Telegram Scalp")
+        if res.get("success"):
+            await update.message.reply_text(
+                f"✅ <b>Instant Scalp {side} Placed!</b>\n"
+                f"• Ticket: <code>#{res.get('ticket')}</code>\n"
+                f"• Symbol: <code>{sym}</code> ({volume} Lot)\n"
+                f"• Price: <code>${res.get('price', 0):.2f}</code>\n"
+                f"• SL: <code>${sl:.2f} (-$10)</code>\n"
+                f"• TP: <code>${tp:.2f} (+$2)</code>",
+                parse_mode="HTML",
+            )
+        else:
+            await update.message.reply_text(f"❌ Execution failed: {html.escape(str(res.get('error')))}", parse_mode="HTML")
+        return
+
+    if sub == "closeall":
+        positions = mt5_service.get_open_positions()
+        if not positions:
+            await update.message.reply_text("ℹ️ No open positions to close.", parse_mode="HTML")
+            return
+        closed = 0
+        for p in positions:
+            if mt5_service.close_position(p["ticket"]).get("success"):
+                closed += 1
+        await update.message.reply_text(f"✅ Closed {closed}/{len(positions)} positions on Exness MT5.", parse_mode="HTML")
+        return
+
+    # Default: Show live status & open positions
+    telemetry = mt5_scalper.telemetry.model_dump()
+    positions = mt5_service.get_open_positions()
+    msg = format_scalper_status(telemetry, positions)
+    await update.message.reply_text(msg, parse_mode="HTML")
+
+
+async def cmd_mt5(update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:
+    if not update.message:
+        return
+    acc = mt5_service.get_account_status()
+    positions = mt5_service.get_open_positions()
+    msg = format_mt5_account(acc, positions)
+    await update.message.reply_text(msg, parse_mode="HTML")
+
+
+async def cmd_closeall(update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:
+    if not update.message:
+        return
+    positions = mt5_service.get_open_positions()
+    if not positions:
+        await update.message.reply_text("ℹ️ No open positions on MT5.", parse_mode="HTML")
+        return
+    closed = 0
+    for p in positions:
+        if mt5_service.close_position(p["ticket"]).get("success"):
+            closed += 1
+    await update.message.reply_text(f"✅ Closed {closed}/{len(positions)} positions on Exness MT5.", parse_mode="HTML")
+

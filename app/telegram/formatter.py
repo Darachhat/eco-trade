@@ -314,3 +314,66 @@ def format_risk_status(risk: dict) -> str:
 • <b>Loss Streak:</b> <code>{risk.get('consecutive_losses', 0)}</code> / <code>{limits.get('max_consecutive_losses', 5)} max</code>
 • <b>Max Drawdown:</b> <code>{risk.get('max_drawdown_pct', 0):.2f}%</code>"""
 
+
+def format_scalper_status(telemetry: dict, positions: list) -> str:
+    is_running = telemetry.get("is_running", False)
+    status_icon = "🟢 <b>ACTIVE (TICK LOOP)</b>" if is_running else "🔴 <b>STOPPED</b>"
+    symbol = telemetry.get("symbol", "XAUUSDm")
+    bid = telemetry.get("current_bid", 0.0)
+    ask = telemetry.get("current_ask", 0.0)
+    spread = telemetry.get("current_spread_points", 0.0)
+    atr = telemetry.get("current_atr_points", 0.0)
+    sig = telemetry.get("last_signal", "NEUTRAL")
+    reason = telemetry.get("last_signal_reason", "Awaiting ticks")
+
+    pos_lines = []
+    if positions:
+        for p in positions:
+            pnl_sign = "+" if p.get("profit", 0) >= 0 else ""
+            pos_lines.append(f"• <b>#{p.get('ticket')}</b> <code>{p.get('symbol')} {p.get('type')} {p.get('volume')}L</code> @ ${p.get('price_open', 0):.2f} (<b>{pnl_sign}${p.get('profit', 0):.2f}</b>)")
+        pos_str = "\n".join(pos_lines)
+    else:
+        pos_str = "<i>No open positions. Scalper scanning ticks...</i>"
+
+    return f"""⚡ <b>EXNESS MT5 HIGH-FREQUENCY SCALPER</b>
+━━━━━━━━━━━━━━━━━━━━━━━━
+• <b>Engine State:</b> {status_icon}
+• <b>Active Target:</b> <code>{symbol}</code>
+• <b>Market Price:</b> <code>Bid: ${bid:.2f} | Ask: ${ask:.2f}</code>
+• <b>Spread / ATR:</b> <code>{spread:.0f} pts | ATR: {atr:.0f} pts</code>
+• <b>Last Signal:</b> <b>{sig}</b>
+• <b>Reason:</b> <i>{html.escape(reason)}</i>
+
+🎯 <b>Target Calibration:</b>
+• <b>Take Profit:</b> <code>+$2.00 price move</code>
+• <b>Stop Loss:</b> <code>-$10.00 buffer</code>
+• <b>Break-Even:</b> <code>+$1.00 move</code>
+
+📊 <b>Open Positions ({len(positions)}):</b>
+{pos_str}
+
+<i>Commands:</i>
+• <code>/scalp start</code> — Start autonomous loop
+• <code>/scalp stop</code> — Emergency halt
+• <code>/scalp buy [LOT]</code> — Instant BUY
+• <code>/scalp sell [LOT]</code> — Instant SELL
+• <code>/closeall</code> — Liquidate all open positions"""
+
+
+def format_mt5_account(acc: dict, positions: list) -> str:
+    conn_badge = "🟢 <b>CONNECTED</b>" if acc.get("connected") else "🔴 <b>DISCONNECTED</b>"
+    pos_count = len(positions)
+    total_pnl = sum(p.get("profit", 0.0) for p in positions)
+    pnl_sign = "+" if total_pnl >= 0 else ""
+
+    return f"""🏦 <b>EXNESS MT5 TERMINAL</b>
+━━━━━━━━━━━━━━━━━━━━━━━━
+• <b>Status:</b> {conn_badge}
+• <b>Account:</b> <code>{acc.get('login', '?')} ({acc.get('server', '?')})</code>
+• <b>Balance:</b> <b>${acc.get('balance', 0):,.2f} USD</b>
+• <b>Equity:</b> <b>${acc.get('equity', 0):,.2f} USD</b>
+• <b>Leverage:</b> <code>1:{acc.get('leverage', 2000)}</code>
+• <b>Free Margin:</b> <code>${acc.get('free_margin', 0):,.2f}</code>
+• <b>Open Positions:</b> <code>{pos_count}</code> (Floating: <b>{pnl_sign}${total_pnl:.2f}</b>)"""
+
+

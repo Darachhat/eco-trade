@@ -15,15 +15,18 @@ from app.core.config import settings
 from app.core.logging import get_logger
 from app.telegram.commands import (
     cmd_backtest,
+    cmd_closeall,
     cmd_help,
     cmd_journal,
     cmd_market,
     cmd_models,
+    cmd_mt5,
     cmd_pause,
     cmd_performance,
     cmd_positions,
     cmd_resume,
     cmd_risk,
+    cmd_scalp,
     cmd_signal,
     cmd_start,
     cmd_status,
@@ -54,6 +57,10 @@ class TelegramBot:
         self._app.add_handler(CommandHandler("start", cmd_start))
         self._app.add_handler(CommandHandler("help", cmd_help))
         self._app.add_handler(CommandHandler("status", cmd_status))
+        self._app.add_handler(CommandHandler("scalp", cmd_scalp))
+        self._app.add_handler(CommandHandler("scalper", cmd_scalp))
+        self._app.add_handler(CommandHandler("mt5", cmd_mt5))
+        self._app.add_handler(CommandHandler("closeall", cmd_closeall))
         self._app.add_handler(CommandHandler("market", cmd_market))
         self._app.add_handler(CommandHandler("signal", cmd_signal))
         self._app.add_handler(CommandHandler("models", cmd_models))
