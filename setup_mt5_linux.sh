@@ -51,10 +51,20 @@ if [ ! -d "$WINEPREFIX/drive_c/Python311" ]; then
     echo "✓ Windows Python installed under Wine"
 fi
 
-# 4. Install MetaTrader5 library & requirements inside Wine
-echo "[4/4] Installing MetaTrader5 library and requirements..."
+# 4. Install MetaTrader 5 Terminal inside Wine
+echo "[4/5] Setting up MetaTrader 5 Terminal inside Wine..."
+if [ ! -f "$WINEPREFIX/drive_c/Program Files/MetaTrader 5/terminal64.exe" ] && [ ! -f "$WINEPREFIX/drive_c/Program Files/Exness MetaTrader 5 Terminal/terminal64.exe" ]; then
+    echo "Downloading and installing MetaTrader 5..."
+    wget -q -O /tmp/mt5setup.exe https://download.mql5.com/cdn/web/metaquotes.software.corp/mt5/mt5setup.exe || true
+    wine /tmp/mt5setup.exe /auto || true
+    sleep 10
+    echo "✓ MetaTrader 5 installed inside Wine"
+fi
+
+# 5. Install MetaTrader5 library & requirements inside Wine
+echo "[5/5] Installing MetaTrader5 Python packages inside Wine..."
 wine "C:\\Python311\\python.exe" -m pip install --upgrade pip
-wine "C:\\Python311\\python.exe" -m pip install MetaTrader5 pydantic requests
+wine "C:\\Python311\\python.exe" -m pip install MetaTrader5 pydantic pydantic-settings structlog pandas numpy python-dotenv requests
 
 echo "========================================================"
 echo " ✅ Linux MT5 Environment Ready!"
