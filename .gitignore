@@ -78,6 +78,13 @@ notebooks/.ipynb_checkpoints/
 *.sqlite3
 
 # =========================
+# Celery & Task Queues
+# =========================
+celerybeat-schedule*
+celerybeat.pid
+*.pid
+
+# =========================
 # Misc
 # =========================
 *.bak
