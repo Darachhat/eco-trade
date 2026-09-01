@@ -45,7 +45,7 @@ class ScalperConfig(BaseModel):
     max_drawdown_pct: float = Field(default=10.00, description="Max drawdown limit % (e.g. 10.0%)")
     max_consecutive_losses: int = Field(default=4, description="Halt trading after N consecutive losses")
     consecutive_loss_cooldown_mins: int = Field(default=30, description="Cooldown in minutes after max losses")
-    max_concurrent_positions: int = Field(default=1, description="Max concurrent positions (1 or 2)")
+    max_concurrent_positions: int = Field(default=5, description="Max concurrent positions (e.g. 5)")
     min_margin_level_pct: float = Field(default=200.0, description="Minimum margin level required to open trade")
 
     # Dynamic Position Sizing
@@ -343,29 +343,55 @@ class MT5ScalpingEngine:
         self.telemetry.filter_risk_ok = True
         return True, "Risk guards safe"
 
-    # ─── 4. SIGNAL ENGINE ───────────────────────────────────────────────────
-    def _evaluate_signal(self, data: Dict[str, Any]) -> Tuple[str, str]:
+    # ─── 4. SIGNAL ENGINE (MULTI-FACTOR AI CONFIDENCE) ──────────────────────
+    def _evaluate_signal(self, data: Dict[str, Any]) -> Tuple[str, str, float]:
         ema_9 = data["ema_9"]
         ema_21 = data["ema_21"]
         ema_50 = data["ema_50"]
         rsi = data["rsi_14"]
         price = data["close"]
 
-        # BUY Logic: Fast EMA > Mid EMA, Price > Trend EMA 50, RSI in bullish momentum zone (50-70)
-        is_bull_trend = (ema_9 > ema_21) and (price > ema_50)
-        is_bull_momentum = 52.0 <= rsi <= 72.0
+        bull_score = 0.0
+        bear_score = 0.0
 
-        if is_bull_trend and is_bull_momentum:
-            return "BUY", f"Trend bullish (EMA 9 > 21 > 50) + RSI momentum ({rsi:.1f})"
+        # 1. Trend Factor (Max 40 pts)
+        if ema_9 > ema_21:
+            bull_score += 20.0
+        if price > ema_50:
+            bull_score += 20.0
 
-        # SELL Logic: Fast EMA < Mid EMA, Price < Trend EMA 50, RSI in bearish momentum zone (28-48)
-        is_bear_trend = (ema_9 < ema_21) and (price < ema_50)
-        is_bear_momentum = 28.0 <= rsi <= 48.0
+        if ema_9 < ema_21:
+            bear_score += 20.0
+        if price < ema_50:
+            bear_score += 20.0
 
-        if is_bear_trend and is_bear_momentum:
-            return "SELL", f"Trend bearish (EMA 9 < 21 < 50) + RSI momentum ({rsi:.1f})"
+        # 2. RSI Momentum Factor (Max 30 pts)
+        if 50.0 <= rsi <= 75.0:
+            bull_score += 30.0 * ((rsi - 50.0) / 25.0)
+        elif rsi > 75.0:
+            bull_score += 15.0  # Overbought penalty
 
-        return "NEUTRAL", "No clear high-probability alignment"
+        if 25.0 <= rsi <= 50.0:
+            bear_score += 30.0 * ((50.0 - rsi) / 25.0)
+        elif rsi < 25.0:
+            bear_score += 15.0  # Oversold penalty
+
+        # 3. Price Action / Alignment Factor (Max 30 pts)
+        if price > ema_9:
+            bull_score += 30.0
+        if price < ema_9:
+            bear_score += 30.0
+
+        # Calculate final confidence percentage
+        if bull_score >= 65.0 and bull_score > bear_score:
+            confidence = min(98.0, round(bull_score, 1))
+            return "BUY", f"High-Confidence Bullish Trend (Confidence: {confidence}%, RSI: {rsi:.1f})", confidence
+
+        if bear_score >= 65.0 and bear_score > bull_score:
+            confidence = min(98.0, round(bear_score, 1))
+            return "SELL", f"High-Confidence Bearish Trend (Confidence: {confidence}%, RSI: {rsi:.1f})", confidence
+
+        return "NEUTRAL", f"Consolidating market (Bull: {bull_score:.0f}%, Bear: {bear_score:.0f}%)", 0.0
 
     # ─── 5. DYNAMIC POSITION SIZING ─────────────────────────────────────────
     def _calculate_lot_size(self, data: Dict[str, Any], sl_points: float) -> float:
@@ -511,8 +537,8 @@ class MT5ScalpingEngine:
                     await asyncio.sleep(1.0)
                     continue
 
-                # 5. Evaluate Signal Engine
-                signal, signal_msg = self._evaluate_signal(data)
+                # 5. Evaluate Signal Engine (Multi-Factor AI Confidence)
+                signal, signal_msg, confidence = self._evaluate_signal(data)
                 self.telemetry.last_signal = signal
                 self.telemetry.last_signal_reason = signal_msg
 
