@@ -194,6 +194,11 @@ async def cmd_signal(update: Update, context: ContextTypes.DEFAULT_TYPE) -> None
             regime=regime_res.regime.value if regime_res else None,
         )
 
+        from app.core.constants import SignalDirection
+
+        direction = ens_result.get("direction", SignalDirection.NO_TRADE)
+        risk_allowed, _ = risk_manager.can_trade(symbol=symbol, direction=direction)
+
         signal_engine = SignalEngine()
         trade_signal = signal_engine.generate(
             ensemble_result=ens_result,
@@ -202,7 +207,7 @@ async def cmd_signal(update: Update, context: ContextTypes.DEFAULT_TYPE) -> None
             timeframe=timeframe,
             regime=regime_res,
             current_price=curr_price,
-            risk_ok=risk_manager.can_trade(symbol),
+            risk_ok=risk_allowed,
         )
 
         signal_id = f"SIG-{uuid.uuid4().hex[:8].upper()}"
