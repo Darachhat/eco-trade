@@ -56,11 +56,11 @@ class ScalperConfig(BaseModel):
     tp_atr_multiplier: float = Field(default=1.20, description="Take profit distance = ATR * multiplier")
     sl_atr_multiplier: float = Field(default=1.00, description="Stop loss distance = ATR * multiplier")
 
-    # Market Filters
-    max_spread_points: float = Field(default=35.0, description="Max allowed spread in points")
-    min_tp_to_spread_ratio: float = Field(default=3.50, description="Required TP / Spread ratio (e.g. >= 3.5)")
-    min_atr_points: float = Field(default=50.0, description="Min ATR in points (avoids dead markets)")
-    max_atr_points: float = Field(default=600.0, description="Max ATR in points (avoids news spikes)")
+    # Market Filters (points calibrated for 3-digit Gold point 0.001)
+    max_spread_points: float = Field(default=400.0, description="Max allowed spread in points (e.g. 400 pts = $0.40)")
+    min_tp_to_spread_ratio: float = Field(default=3.00, description="Required TP / Spread ratio (e.g. >= 3.0)")
+    min_atr_points: float = Field(default=300.0, description="Min ATR in points (avoids dead markets)")
+    max_atr_points: float = Field(default=8000.0, description="Max ATR in points (avoids news spikes)")
     session_start_hour: int = Field(default=1, description="Trading start hour (UTC)")
     session_end_hour: int = Field(default=23, description="Trading end hour (UTC)")
     cooldown_seconds_after_close: int = Field(default=30, description="Cooldown between trades in seconds")
@@ -130,15 +130,26 @@ class MT5ScalpingEngine:
 
         self.is_running = True
         self.telemetry.is_running = True
-        self._loop_task = asyncio.create_task(self._autonomous_tick_loop())
+
+        import threading
+
+        def _thread_runner():
+            loop = asyncio.new_event_loop()
+            asyncio.set_event_loop(loop)
+            try:
+                loop.run_until_complete(self._autonomous_tick_loop())
+            finally:
+                loop.close()
+
+        self._bg_thread = threading.Thread(target=_thread_runner, daemon=True, name="MT5ScalperLoop")
+        self._bg_thread.start()
+
         logger.info("Autonomous MT5 Scalper Engine STARTED", symbol=self.config.symbol)
         return {"success": True, "message": f"Autonomous Scalper started on {self.config.symbol}"}
 
     def stop(self) -> Dict[str, Any]:
         self.is_running = False
         self.telemetry.is_running = False
-        if self._loop_task and not self._loop_task.done():
-            self._loop_task.cancel()
         logger.info("Autonomous MT5 Scalper Engine STOPPED")
         return {"success": True, "message": "Autonomous Scalper stopped"}
 
