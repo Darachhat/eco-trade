@@ -7,6 +7,8 @@ MetaTrader 5 Service Bridge for Exness (Demo & Real) Execution.
 from __future__ import annotations
 
 import os
+import json
+import urllib.request
 from typing import Any, Dict, List, Optional
 from datetime import datetime
 
@@ -20,6 +22,9 @@ except ImportError:
 from app.core.logging import get_logger
 
 logger = get_logger("mt5_service")
+
+# Optional remote Windows bridge URL (e.g. http://host.docker.internal:8000 or http://103.6.168.32:8000)
+MT5_BRIDGE_URL = os.getenv("MT5_BRIDGE_URL", "").rstrip("/")
 
 # Common Exness symbol mappings
 SYMBOL_MAP = {
@@ -38,6 +43,34 @@ class MT5BridgeService:
         self.active_login: Optional[int] = None
         self.active_server: Optional[str] = None
         self.terminal_path = DEFAULT_TERMINAL_PATH
+        self.bridge_url = MT5_BRIDGE_URL
+
+    def _http_get(self, endpoint: str) -> Optional[Dict[str, Any]]:
+        if not self.bridge_url:
+            return None
+        try:
+            url = f"{self.bridge_url}{endpoint}"
+            req = urllib.request.Request(url, headers={"User-Agent": "EcoTradeLinux/1.0"})
+            with urllib.request.urlopen(req, timeout=5) as resp:
+                if resp.status == 200:
+                    return json.loads(resp.read().decode("utf-8"))
+        except Exception as e:
+            logger.debug("MT5 Bridge HTTP GET error", endpoint=endpoint, error=str(e))
+        return None
+
+    def _http_post(self, endpoint: str, payload: Dict[str, Any]) -> Optional[Dict[str, Any]]:
+        if not self.bridge_url:
+            return None
+        try:
+            url = f"{self.bridge_url}{endpoint}"
+            data = json.dumps(payload).encode("utf-8")
+            req = urllib.request.Request(url, data=data, headers={"Content-Type": "application/json", "User-Agent": "EcoTradeLinux/1.0"})
+            with urllib.request.urlopen(req, timeout=8) as resp:
+                if resp.status in (200, 201):
+                    return json.loads(resp.read().decode("utf-8"))
+        except Exception as e:
+            logger.debug("MT5 Bridge HTTP POST error", endpoint=endpoint, error=str(e))
+        return None
 
     def initialize_and_login(
         self,
@@ -114,7 +147,16 @@ class MT5BridgeService:
             return {"success": False, "error": str(e)}
 
     def get_account_status(self) -> Dict[str, Any]:
-        if not MT5_AVAILABLE or not self.is_connected:
+        if not MT5_AVAILABLE:
+            remote = self._http_get("/api/mt5/status")
+            if remote:
+                return remote
+            return {"connected": False, "mode": "Remote MT5 Windows Bridge Required"}
+
+        if not self.is_connected:
+            self.initialize_and_login()
+
+        if not self.is_connected:
             return {"connected": False}
 
         acc = mt5.account_info()
@@ -136,6 +178,8 @@ class MT5BridgeService:
 
     def _resolve_symbol(self, generic_symbol: str) -> Optional[str]:
         """Resolves EcoTrade symbol (e.g. XAUUSDT or BTCUSDT) to active Exness symbol (e.g. XAUUSDm)."""
+        if not MT5_AVAILABLE:
+            return "XAUUSDm"
         candidates = SYMBOL_MAP.get(generic_symbol, [generic_symbol])
 
         # Test which symbol exists and is selectable in MT5 MarketWatch
@@ -157,7 +201,16 @@ class MT5BridgeService:
         return None
 
     def get_open_positions(self) -> List[Dict[str, Any]]:
-        if not MT5_AVAILABLE or not self.is_connected:
+        if not MT5_AVAILABLE:
+            remote = self._http_get("/api/mt5/positions")
+            if remote and "positions" in remote:
+                return remote["positions"]
+            return []
+
+        if not self.is_connected:
+            self.initialize_and_login()
+
+        if not self.is_connected:
             return []
 
         positions = mt5.positions_get()
@@ -191,7 +244,23 @@ class MT5BridgeService:
         tp: Optional[float] = None,
         comment: str = "EcoTrade AI Signal",
     ) -> Dict[str, Any]:
-        if not MT5_AVAILABLE or not self.is_connected:
+        if not MT5_AVAILABLE:
+            remote = self._http_post("/api/mt5/order", {
+                "symbol": symbol,
+                "side": side,
+                "volume": volume,
+                "sl": sl,
+                "tp": tp,
+                "comment": comment,
+            })
+            if remote:
+                return remote
+            return {"success": False, "error": "Remote MT5 bridge not reachable from Linux VM. Run on Windows host."}
+
+        if not self.is_connected:
+            self.initialize_and_login()
+
+        if not self.is_connected:
             return {"success": False, "error": "MT5 is not connected"}
 
         mt5_symbol = self._resolve_symbol(symbol)
