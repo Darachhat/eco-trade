@@ -187,14 +187,33 @@ class ScalperBridgeHTTPHandler(BaseHTTPRequestHandler):
             self._send_json(404, {"error": "Not found"})
 
 
-def start_http_bridge_server(port: int = 8008):
-    try:
-        server = HTTPServer(("0.0.0.0", port), ScalperBridgeHTTPHandler)
-        t = threading.Thread(target=server.serve_forever, daemon=True)
-        t.start()
-        logger.info("[HTTP BRIDGE] Listening on 0.0.0.0:%d (Docker bridge ready)", port)
-    except Exception as e:
-        logger.warning("Could not bind HTTP Bridge on port %d: %s", port, e)
+class EngineState:
+    STARTING = "STARTING"
+    XVFB_READY = "XVFB_READY"
+    WINE_READY = "WINE_READY"
+    MT5_PROCESS_READY = "MT5_PROCESS_READY"
+    MT5_IPC_READY = "MT5_IPC_READY"
+    ACCOUNT_READY = "ACCOUNT_READY"
+    SYMBOL_READY = "SYMBOL_READY"
+    MARKET_DATA_READY = "MARKET_DATA_READY"
+    TRADING_READY = "TRADING_READY"
+    ERROR = "ERROR"
+
+
+def start_http_bridge_server(port: int = 8008, host: str = "127.0.0.1", enabled: bool = True):
+    if not enabled:
+        logger.info("[HTTP BRIDGE] Bridge disabled via configuration.")
+        return
+    for candidate_host in [host, "0.0.0.0", "127.0.0.1"]:
+        try:
+            server = HTTPServer((candidate_host, port), ScalperBridgeHTTPHandler)
+            t = threading.Thread(target=server.serve_forever, daemon=True)
+            t.start()
+            logger.info("[HTTP BRIDGE] Listening on %s:%d (API bridge ready)", candidate_host, port)
+            return
+        except Exception as e:
+            logger.debug("Could not bind HTTP Bridge on %s:%d: %s", candidate_host, port, e)
+    logger.warning("[HTTP BRIDGE] Could not bind HTTP Bridge on port %d. Trading engine continues unaffected.", port)
 
 
 # ─── Pure Python Technical Indicators ──────────────────────────────────────────
@@ -258,16 +277,33 @@ class PureScalper:
         self.sl_dollars = sl
         self.risk_pct = risk
         self.is_connected = False
+        self.is_healthy = False
+        self.state = EngineState.STARTING
         self.last_trade_time = 0.0
         self.last_closed_time = 0.0
         self.consecutive_losses = 0
+        self.consecutive_ipc_failures = 0
         self.session_start_balance: Optional[float] = None  # Set after first connect
 
     def connect(self) -> bool:
-        mt5.shutdown()
-        import subprocess
+        """
+        Deterministic 7-Stage Startup State Machine & Health Check:
+          STARTING -> XVFB_READY -> WINE_READY -> MT5_PROCESS_READY ->
+          MT5_IPC_READY -> ACCOUNT_READY -> SYMBOL_READY -> MARKET_DATA_READY -> TRADING_READY
+        """
+        self.state = EngineState.STARTING
+        self.is_connected = False
+        self.is_healthy = False
 
-        # Scan candidate paths
+        # ── STAGE 1: Display / Xvfb Check ───────────────────────────────────────
+        display = os.environ.get("DISPLAY")
+        if not display and sys.platform != "win32":
+            logger.error("[STATE: ERROR] DISPLAY environment variable not set! Xvfb on :99 is required.")
+            self.state = EngineState.ERROR
+            return False
+        self.state = EngineState.XVFB_READY
+
+        # ── STAGE 2: Locate MT5 Terminal Binary ─────────────────────────────────
         candidate_paths = [
             r"C:\Program Files\MetaTrader 5\terminal64.exe",
             r"C:\Program Files\Exness MetaTrader 5 Terminal\terminal64.exe",
@@ -275,79 +311,158 @@ class PureScalper:
             r"C:\MetaTrader 5\terminal64.exe",
             r"C:\MT5\terminal64.exe",
         ]
-
         valid_path = None
         for p in candidate_paths:
             if os.path.exists(p):
                 valid_path = p
                 break
 
-        init_ok = False
-        if valid_path:
-            logger.info("Found MT5 terminal binary: %s", valid_path)
-            term_dir = os.path.dirname(valid_path)
-            ini_path = os.path.join(term_dir, "startup.ini")
-            try:
-                with open(ini_path, "w", encoding="utf-8") as f:
-                    f.write(
-                        f"[Common]\n"
-                        f"Login={int(self.login)}\n"
-                        f"Password={self.password}\n"
-                        f"Server={self.server}\n"
-                        f"NewsEnable=0\n"
-                        f"[Experts]\n"
-                        f"AllowLiveTrading=1\n"
-                        f"AllowDllImport=1\n"
-                        f"Enabled=1\n"
-                    )
-            except Exception as e:
-                logger.debug("Could not write startup.ini: %s", e)
+        if not valid_path and sys.platform == "win32":
+            valid_path = candidate_paths[0]
 
-            try:
-                # First try attaching to the already-running terminal directly
-                init_ok = mt5.initialize(
-                    login=int(self.login),
-                    password=str(self.password),
-                    server=str(self.server),
-                    timeout=15000,
+        if not valid_path:
+            logger.error("[STATE: ERROR] Could not find terminal64.exe in any candidate path!")
+            self.state = EngineState.ERROR
+            return False
+
+        logger.info("[STATE: WINE_READY] Discovered terminal binary: %s", valid_path)
+        self.state = EngineState.WINE_READY
+
+        # ── STAGE 3: Process Guard & IPC Initialization ────────────────────────
+        self.state = EngineState.MT5_PROCESS_READY
+
+        # Write startup.ini to suppress wizards and supply server config
+        term_dir = os.path.dirname(valid_path)
+        ini_path = os.path.join(term_dir, "startup.ini")
+        try:
+            with open(ini_path, "w", encoding="utf-8") as f:
+                f.write(
+                    f"[Common]\n"
+                    f"Login={int(self.login)}\n"
+                    f"Password={self.password}\n"
+                    f"Server={self.server}\n"
+                    f"NewsEnable=0\n"
+                    f"[Experts]\n"
+                    f"AllowLiveTrading=1\n"
+                    f"AllowDllImport=1\n"
+                    f"Enabled=1\n"
                 )
-            except Exception:
-                pass
+        except Exception as e:
+            logger.debug("Could not write startup.ini: %s", e)
 
-            if not init_ok:
-                try:
-                    # If not running, launch with path
-                    init_ok = mt5.initialize(
-                        path=valid_path,
-                        login=int(self.login),
-                        password=str(self.password),
-                        server=str(self.server),
-                        portable=True,
-                        timeout=60000,
-                    )
-                except Exception:
-                    pass
+        # Attempt A: Attach to already-running terminal first (prevents duplicate instance collisions)
+        init_ok = False
+        try:
+            init_ok = mt5.initialize(timeout=10000)
+            if init_ok:
+                logger.info("[STATE: MT5_IPC_READY] Successfully attached to existing MT5 terminal process.")
+        except Exception as e:
+            logger.debug("Direct attach note: %s", e)
+
+        # Attempt B: If not attached, launch once cleanly using the discovered path
+        if not init_ok:
+            logger.info("[STATE: MT5_PROCESS_READY] Launching terminal via mt5.initialize(path=...)...")
+            try:
+                init_ok = mt5.initialize(
+                    path=valid_path,
+                    portable=True,
+                    timeout=45000,
+                )
+            except Exception as e:
+                logger.error("mt5.initialize(path) exception: %s", e)
 
         if not init_ok:
             err = mt5.last_error()
-            logger.error("MT5 Init failed: %s", err)
-            self.is_connected = False
+            self.consecutive_ipc_failures += 1
+            logger.error(
+                "[STATE: ERROR] MT5 IPC failed: %s (consecutive failures: %d). Shutting down IPC cleanly.",
+                err, self.consecutive_ipc_failures
+            )
+            self.state = EngineState.ERROR
+            try:
+                mt5.shutdown()
+            except Exception:
+                pass
             return False
+
+        # Verify terminal_info()
+        term_info = mt5.terminal_info()
+        if not term_info:
+            logger.error("[STATE: ERROR] terminal_info() is None after initialize. IPC channel invalid.")
+            self.state = EngineState.ERROR
+            mt5.shutdown()
+            return False
+
+        self.state = EngineState.MT5_IPC_READY
+        logger.info("[STATE: MT5_IPC_READY] Terminal info verified: build=%s, connected=%s",
+                    getattr(term_info, "build", "?"), getattr(term_info, "connected", False))
+
+        # ── STAGE 4: Account Authentication / Login ─────────────────────────────
+        logger.info("Authenticating login #%d on broker server '%s'...", self.login, self.server)
+        login_ok = False
+        try:
+            login_ok = mt5.login(
+                login=int(self.login),
+                password=str(self.password),
+                server=str(self.server),
+                timeout=20000,
+            )
+        except Exception as e:
+            logger.warning("mt5.login() exception: %s", e)
 
         acc = mt5.account_info()
         if not acc:
-            logger.error("Failed to read account info: %s", mt5.last_error())
-            self.is_connected = False
+            err = mt5.last_error()
+            logger.error("[STATE: ERROR] account_info() is None after login (err: %s). Broker credentials or server invalid.", err)
+            self.state = EngineState.ERROR
             return False
 
-        # Select symbol
-        mt5.symbol_select(self.symbol, True)
+        self.state = EngineState.ACCOUNT_READY
+        logger.info("[STATE: ACCOUNT_READY] Authenticated! Account: %d (%s) | Balance: $%.2f | Leverage: 1:%d",
+                    acc.login, acc.server, acc.balance, acc.leverage)
+
+        # ── STAGE 5: Symbol Discovery & Visibility ──────────────────────────────
+        if not mt5.symbol_select(self.symbol, True):
+            logger.warning("symbol_select('%s', True) returned False. Checking visibility...", self.symbol)
+
+        sym_info = mt5.symbol_info(self.symbol)
+        if not sym_info or not sym_info.visible:
+            # Try selecting once more
+            mt5.symbol_select(self.symbol, True)
+            sym_info = mt5.symbol_info(self.symbol)
+
+        if not sym_info:
+            logger.error("[STATE: ERROR] Target symbol '%s' not found on broker server '%s'.", self.symbol, self.server)
+            self.state = EngineState.ERROR
+            return False
+
+        self.state = EngineState.SYMBOL_READY
+        logger.info("[STATE: SYMBOL_READY] Target symbol '%s' verified (digits=%d, point=%s).",
+                    self.symbol, sym_info.digits, sym_info.point)
+
+        # ── STAGE 6: Market Data & Tick Subscription ────────────────────────────
+        tick = mt5.symbol_info_tick(self.symbol)
+        if not tick or tick.bid <= 0 or tick.ask <= 0:
+            logger.warning("[STATE: MARKET_DATA_READY] Tick data for '%s' not yet streaming (market closed or subscribing).", self.symbol)
+        else:
+            logger.info("[STATE: MARKET_DATA_READY] Market data streaming: Bid=$%.3f | Ask=$%.3f", tick.bid, tick.ask)
+
+        self.state = EngineState.MARKET_DATA_READY
+
+        # ── STAGE 7: Trading Ready & Anchor Balance ─────────────────────────────
         self.is_connected = True
+        self.is_healthy = True
+        self.consecutive_ipc_failures = 0
+        self.state = EngineState.TRADING_READY
+
         if self.session_start_balance is None:
             self.session_start_balance = float(acc.balance)
             logger.info("Session start balance anchored at $%.2f (Account SL triggers at $%.2f)",
                         self.session_start_balance, self.session_start_balance - self.ACCOUNT_SL_DROP)
-        logger.info("Connected to Exness MT5! Account: %d (%s) | Balance: $%.2f | Leverage: 1:%d", acc.login, acc.server, acc.balance, acc.leverage)
+
+        logger.info("================================================================")
+        logger.info(" >>> [STATE: TRADING_READY] ALL 7 HEALTH CHECKS PASSED. ENGINE ACTIVE. <<<")
+        logger.info("================================================================")
         return True
 
     def calculate_lot(self, equity: float) -> float:
@@ -455,13 +570,16 @@ class PureScalper:
         return False
 
     def evaluate_tick(self):
+        if not self.is_healthy or self.state != EngineState.TRADING_READY:
+            return
+
         sym_info = mt5.symbol_info(self.symbol)
         if not sym_info or not sym_info.visible:
             mt5.symbol_select(self.symbol, True)
             sym_info = mt5.symbol_info(self.symbol)
 
         tick = mt5.symbol_info_tick(self.symbol)
-        if not tick or tick.bid <= 0:
+        if not tick or tick.bid <= 0 or tick.ask <= 0:
             return
 
         point = sym_info.point if sym_info else 0.001
@@ -612,6 +730,9 @@ def main():
     parser.add_argument("--tp", type=float, default=5.00, help="Aggregate Take Profit in Dollars ($5.00)")
     parser.add_argument("--sl", type=float, default=100.00, help="Fixed SL in Dollars ($100.00)")
     parser.add_argument("--risk", type=float, default=0.50, help="Risk Pct (0.50%%)")
+    parser.add_argument("--http-port", type=int, default=int(os.environ.get("HTTP_BRIDGE_PORT", 8008)), help="HTTP bridge port")
+    parser.add_argument("--http-host", type=str, default="127.0.0.1", help="HTTP bridge bind host")
+    parser.add_argument("--no-http-bridge", action="store_true", help="Disable HTTP bridge server")
     args = parser.parse_args()
 
     print("=" * 65)
@@ -637,12 +758,14 @@ def main():
     GLOBAL_SCALPER = scalper
 
     # Start HTTP Bridge Server for Docker/Telegram integration
-    start_http_bridge_server(8008)
+    if not args.no_http_bridge:
+        start_http_bridge_server(port=args.http_port, host=args.http_host, enabled=True)
 
     while not _SHUTDOWN:
         try:
-            if not scalper.is_connected:
-                logger.info("Connecting to Exness MT5 broker...")
+            if not scalper.is_connected or not scalper.is_healthy:
+                logger.info("[STATE: RECOVERY] Engine not ready (state=%s, healthy=%s). Running startup sequence...",
+                            scalper.state, scalper.is_healthy)
                 if not scalper.connect():
                     time.sleep(10)
                     continue

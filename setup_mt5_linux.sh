@@ -30,12 +30,14 @@ sudo apt-get install -y --no-install-recommends \
 # 2. Configure Virtual Display
 echo "[2/4] Initializing virtual display buffer (Xvfb :99)..."
 export DISPLAY=:99
-if ! pgrep -x "Xvfb" > /dev/null; then
+if ! pgrep -af "Xvfb :99" > /dev/null 2>&1; then
+    # Remove stale lock if process is not running
+    rm -f /tmp/.X99-lock /tmp/.X11-unix/X99
     Xvfb :99 -screen 0 1024x768x16 -nolisten tcp &
     sleep 2
     echo "✓ Xvfb virtual display started on :99"
 else
-    echo "✓ Xvfb is already running."
+    echo "✓ Xvfb :99 is already running."
 fi
 
 # 3. Setup Python 3.9 inside Wine environment (Avoids ucrtbase.dll.crealf bug)
