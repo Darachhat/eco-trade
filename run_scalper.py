@@ -245,14 +245,15 @@ def compute_atr_points(rates, period: int = 14, point: float = 0.001) -> float:
 
 class PureScalper:
     MAX_POSITIONS    = 5      # Fill up to this many concurrent positions
-    AGGREGATE_TP     = 1.0   # Close ALL positions when combined profit >= $1
-    ACCOUNT_SL_DROP  = 100.0 # Shut down if equity drops $100 from session start
+    AGGREGATE_TP     = 5.0    # Close ALL positions when combined profit >= $5.00
+    ACCOUNT_SL_DROP  = 100.0  # Shut down if equity drops $100 from session start
 
-    def __init__(self, login: int, password: str, server: str, symbol: str = "XAUUSDm", tp: float = 2.0, sl: float = 10.0, risk: float = 0.5):
+    def __init__(self, login: int, password: str, server: str, symbol: str = "XAUUSDm", tp: float = 5.0, sl: float = 100.0, risk: float = 0.5):
         self.login = login
         self.password = password
         self.server = server
         self.symbol = symbol
+        self.aggregate_tp = tp if tp > 0 else self.AGGREGATE_TP
         self.tp_dollars = tp
         self.sl_dollars = sl
         self.risk_pct = risk
@@ -303,34 +304,29 @@ class PureScalper:
                 logger.debug("Could not write startup.ini: %s", e)
 
             try:
-                # Pre-spawn terminal with config to bypass wizard dialog
-                subprocess.Popen([valid_path, f"/config:{ini_path}", "/portable"])
-                time.sleep(5)
-            except Exception as e:
-                logger.debug("Subprocess launch note: %s", e)
-
-            try:
-                init_ok = mt5.initialize(
-                    path=valid_path,
-                    login=int(self.login),
-                    password=str(self.password),
-                    server=str(self.server),
-                    portable=True,
-                    timeout=30000,
-                )
-            except Exception:
-                pass
-
-        if not init_ok:
-            try:
+                # First try attaching to the already-running terminal directly
                 init_ok = mt5.initialize(
                     login=int(self.login),
                     password=str(self.password),
                     server=str(self.server),
-                    timeout=30000,
+                    timeout=15000,
                 )
             except Exception:
                 pass
+
+            if not init_ok:
+                try:
+                    # If not running, launch with path
+                    init_ok = mt5.initialize(
+                        path=valid_path,
+                        login=int(self.login),
+                        password=str(self.password),
+                        server=str(self.server),
+                        portable=True,
+                        timeout=60000,
+                    )
+                except Exception:
+                    pass
 
         if not init_ok:
             err = mt5.last_error()
@@ -411,10 +407,10 @@ class PureScalper:
 
         # ── Aggregate Profit TP ──────────────────────────────────────────────────
         total_profit = sum(p.profit for p in positions)
-        if total_profit >= self.AGGREGATE_TP:
+        if total_profit >= self.aggregate_tp:
             logger.info("[AGGREGATE TP HIT] Combined profit $%.2f >= $%.2f — closing all %d positions",
-                        total_profit, self.AGGREGATE_TP, len(positions))
-            self.close_all_positions(reason=f"Aggregate TP ${self.AGGREGATE_TP:.2f}")
+                        total_profit, self.aggregate_tp, len(positions))
+            self.close_all_positions(reason=f"Aggregate TP ${self.aggregate_tp:.2f}")
             return True
 
         # ── Per-position Break-Even lock ─────────────────────────────────────────
@@ -613,8 +609,8 @@ def main():
     parser.add_argument("--password", type=str, default="cHhat#2023", help="MT5 Trading Password")
     parser.add_argument("--server", type=str, default="Exness-MT5Trial17", help="MT5 Broker Server")
     parser.add_argument("--symbol", type=str, default="XAUUSDm", help="Target Symbol")
-    parser.add_argument("--tp", type=float, default=2.00, help="Fixed TP in Dollars ($2.00)")
-    parser.add_argument("--sl", type=float, default=10.00, help="Fixed SL in Dollars ($10.00)")
+    parser.add_argument("--tp", type=float, default=5.00, help="Aggregate Take Profit in Dollars ($5.00)")
+    parser.add_argument("--sl", type=float, default=100.00, help="Fixed SL in Dollars ($100.00)")
     parser.add_argument("--risk", type=float, default=0.50, help="Risk Pct (0.50%%)")
     args = parser.parse_args()
 
@@ -623,7 +619,7 @@ def main():
     print("=" * 65)
     print(f" Account:  {args.login} ({args.server})")
     print(f" Target:   {args.symbol}")
-    print(f" Targets:  Aggregate TP: +${PureScalper.AGGREGATE_TP:.2f} (all positions) | Per-trade SL: -${args.sl:.2f}")
+    print(f" Targets:  Aggregate TP: +${args.tp:.2f} (all positions) | Per-trade SL: -${args.sl:.2f}")
     print(f" Slots:    Max {PureScalper.MAX_POSITIONS} concurrent positions | Account SL: -${PureScalper.ACCOUNT_SL_DROP:.0f}")
     print(f" Risk:     {args.risk:.2f}% per trade | Dynamic Break-Even: +$1.00")
     print("=" * 65)
