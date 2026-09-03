@@ -244,6 +244,10 @@ def compute_atr_points(rates, period: int = 14, point: float = 0.001) -> float:
 # ─── Standalone Scalper Loop ───────────────────────────────────────────────────
 
 class PureScalper:
+    MAX_POSITIONS    = 5      # Fill up to this many concurrent positions
+    AGGREGATE_TP     = 1.0   # Close ALL positions when combined profit >= $1
+    ACCOUNT_SL_DROP  = 100.0 # Shut down if equity drops $100 from session start
+
     def __init__(self, login: int, password: str, server: str, symbol: str = "XAUUSDm", tp: float = 2.0, sl: float = 10.0, risk: float = 0.5):
         self.login = login
         self.password = password
@@ -256,6 +260,7 @@ class PureScalper:
         self.last_trade_time = 0.0
         self.last_closed_time = 0.0
         self.consecutive_losses = 0
+        self.session_start_balance: Optional[float] = None  # Set after first connect
 
     def connect(self) -> bool:
         mt5.shutdown()
@@ -342,6 +347,10 @@ class PureScalper:
         # Select symbol
         mt5.symbol_select(self.symbol, True)
         self.is_connected = True
+        if self.session_start_balance is None:
+            self.session_start_balance = float(acc.balance)
+            logger.info("Session start balance anchored at $%.2f (Account SL triggers at $%.2f)",
+                        self.session_start_balance, self.session_start_balance - self.ACCOUNT_SL_DROP)
         logger.info("Connected to Exness MT5! Account: %d (%s) | Balance: $%.2f | Leverage: 1:%d", acc.login, acc.server, acc.balance, acc.leverage)
         return True
 
@@ -352,24 +361,74 @@ class PureScalper:
         lot = risk_dollars / (self.sl_dollars * 100.0 * 0.10)
         return round(max(0.01, min(2.0, lot)), 2)
 
-    def manage_open_trades(self, tick, sym_info):
+    def _close_position(self, pos) -> bool:
+        """Market-close a single position. Returns True on success."""
+        tick = mt5.symbol_info_tick(pos.symbol)
+        if not tick:
+            return False
+        close_price = tick.bid if pos.type == mt5.ORDER_TYPE_BUY else tick.ask
+        sym_info = mt5.symbol_info(pos.symbol)
+        filling_mode = mt5.ORDER_FILLING_IOC
+        if sym_info and sym_info.filling_mode == 1:
+            filling_mode = mt5.ORDER_FILLING_FOK
+        req = {
+            "action": mt5.TRADE_ACTION_DEAL,
+            "position": pos.ticket,
+            "symbol": pos.symbol,
+            "volume": pos.volume,
+            "type": mt5.ORDER_TYPE_SELL if pos.type == mt5.ORDER_TYPE_BUY else mt5.ORDER_TYPE_BUY,
+            "price": close_price,
+            "deviation": 20,
+            "magic": 234000,
+            "comment": "ScalperClose",
+            "type_filling": filling_mode,
+        }
+        res = mt5.order_send(req)
+        return bool(res and res.retcode == mt5.TRADE_RETCODE_DONE)
+
+    def close_all_positions(self, reason: str = "Aggregate TP/SL") -> int:
+        """Close every open position for this symbol. Returns count closed."""
+        positions = mt5.positions_get(symbol=self.symbol) or []
+        closed = 0
+        for pos in positions:
+            if self._close_position(pos):
+                closed += 1
+                logger.info("[CLOSED] Ticket #%d | profit $%.2f | reason: %s", pos.ticket, pos.profit, reason)
+            else:
+                logger.warning("[CLOSE FAILED] Ticket #%d", pos.ticket)
+        return closed
+
+    def manage_open_trades(self, tick, sym_info) -> bool:
+        """
+        Manage open positions.
+        Returns True if all positions were force-closed (caller should skip new entries).
+        """
         positions = mt5.positions_get(symbol=self.symbol)
         if not positions:
-            return
+            return False
 
         point = sym_info.point if sym_info else 0.001
 
+        # ── Aggregate Profit TP ──────────────────────────────────────────────────
+        total_profit = sum(p.profit for p in positions)
+        if total_profit >= self.AGGREGATE_TP:
+            logger.info("[AGGREGATE TP HIT] Combined profit $%.2f >= $%.2f — closing all %d positions",
+                        total_profit, self.AGGREGATE_TP, len(positions))
+            self.close_all_positions(reason=f"Aggregate TP ${self.AGGREGATE_TP:.2f}")
+            return True
+
+        # ── Per-position Break-Even lock ─────────────────────────────────────────
         for pos in positions:
             profit_points = (tick.bid - pos.price_open) / point if pos.type == mt5.ORDER_TYPE_BUY else (pos.price_open - tick.ask) / point
             profit_dollars = profit_points * point
 
-            # 1. Dynamic Break-Even at +$1.00 move
+            # Dynamic Break-Even at +$1.00 individual move
             if profit_dollars >= 1.00:
                 is_buy = pos.type == mt5.ORDER_TYPE_BUY
                 be_sl = round(pos.price_open + 0.01 if is_buy else pos.price_open - 0.01, sym_info.digits)
-                
-                # Update SL to Break-Even if not already locked
-                needs_update = (is_buy and (pos.sl < pos.price_open or pos.sl == 0.0)) or (not is_buy and (pos.sl > pos.price_open or pos.sl == 0.0))
+
+                needs_update = (is_buy and (pos.sl < pos.price_open or pos.sl == 0.0)) or \
+                               (not is_buy and (pos.sl > pos.price_open or pos.sl == 0.0))
                 if needs_update:
                     req = {
                         "action": mt5.TRADE_ACTION_SLTP,
@@ -380,7 +439,24 @@ class PureScalper:
                     }
                     res = mt5.order_send(req)
                     if res and res.retcode == mt5.TRADE_RETCODE_DONE:
-                        logger.info("[BREAK-EVEN LOCKED] Ticket #%d SL moved to entry ($%.3f) at profit +$%.2f", pos.ticket, be_sl, profit_dollars)
+                        logger.info("[BREAK-EVEN LOCKED] Ticket #%d SL moved to entry ($%.3f) at profit +$%.2f",
+                                    pos.ticket, be_sl, profit_dollars)
+
+        return False
+
+    def check_account_sl(self, equity: float) -> bool:
+        """Returns True and shuts down if equity has dropped >= ACCOUNT_SL_DROP."""
+        if self.session_start_balance is None:
+            return False
+        drop = self.session_start_balance - equity
+        if drop >= self.ACCOUNT_SL_DROP:
+            logger.warning(
+                "[ACCOUNT SL HIT] Equity $%.2f dropped $%.2f from session start $%.2f — closing all & stopping",
+                equity, drop, self.session_start_balance,
+            )
+            self.close_all_positions(reason=f"Account SL -${self.ACCOUNT_SL_DROP:.0f}")
+            return True
+        return False
 
     def evaluate_tick(self):
         sym_info = mt5.symbol_info(self.symbol)
@@ -400,15 +476,27 @@ class PureScalper:
         if spread_pts > 400:
             return
 
-        # 2. Manage existing active positions (Break-Even, Trailing)
-        self.manage_open_trades(tick, sym_info)
-
-        # 3. Position Limit Guard (Max 5 concurrent positions)
-        positions = mt5.positions_get(symbol=self.symbol)
-        if positions and len(positions) >= 5:
+        # 2. Account-level equity / drawdown guard
+        acc = mt5.account_info()
+        equity = float(acc.equity) if acc else 0.0
+        if self.check_account_sl(equity):
+            global _SHUTDOWN
+            _SHUTDOWN = True
             return
 
-        # 4. Trade Cooldown Guard (30s between new entries)
+        # 3. Manage existing positions (Aggregate TP, Break-Even)
+        all_closed = self.manage_open_trades(tick, sym_info)
+        if all_closed:
+            return  # positions just closed, skip new entries this tick
+
+        # 4. Count open slots and decide how many new entries to fire
+        positions = mt5.positions_get(symbol=self.symbol) or []
+        open_count = len(positions)
+        slots_available = self.MAX_POSITIONS - open_count
+        if slots_available <= 0:
+            return
+
+        # 5. Trade Cooldown Guard (30s between new entries)
         now = time.time()
         if now - self.last_trade_time < 30:
             return
@@ -451,62 +539,72 @@ class PureScalper:
         if tick.ask < ema_9:
             bear_score += 30.0
 
-        # Entry Trigger
-        acc = mt5.account_info()
-        equity = float(acc.equity) if acc else 10000.0
+        # Entry Trigger — fire up to slots_available orders in one tick
         volume = self.calculate_lot(equity)
 
         filling_mode = mt5.ORDER_FILLING_IOC
-        if sym_info.filling_mode == 1:
+        if sym_info and sym_info.filling_mode == 1:
             filling_mode = mt5.ORDER_FILLING_FOK
 
         if bull_score >= 65.0:
-            sl_price = round(tick.ask - self.sl_dollars, digits)
-            tp_price = round(tick.ask + self.tp_dollars, digits)
-            req = {
-                "action": mt5.TRADE_ACTION_DEAL,
-                "symbol": self.symbol,
-                "volume": volume,
-                "type": mt5.ORDER_TYPE_BUY,
-                "price": tick.ask,
-                "sl": sl_price,
-                "tp": tp_price,
-                "deviation": 20,
-                "magic": 234000,
-                "comment": "EcoTrade 24/7 Scalp",
-                "type_time": mt5.ORDER_TIME_GTC,
-                "type_filling": filling_mode,
-            }
-            res = mt5.order_send(req)
-            if res and res.retcode == mt5.TRADE_RETCODE_DONE:
-                self.last_trade_time = now
-                logger.info("[BUY EXECUTED] Ticket #%d | %s %.2fL @ $%.3f | SL $%.3f (-$10) | TP $%.3f (+$2) | Conf: %.1f%%", res.order, self.symbol, volume, tick.ask, sl_price, tp_price, bull_score)
-            else:
-                logger.warning("BUY Send failed: %s (code %s)", getattr(res, "comment", "?"), getattr(res, "retcode", "?"))
+            for i in range(slots_available):
+                sl_price = round(tick.ask - self.sl_dollars, digits)
+                tp_price = round(tick.ask + self.tp_dollars, digits)
+                req = {
+                    "action": mt5.TRADE_ACTION_DEAL,
+                    "symbol": self.symbol,
+                    "volume": volume,
+                    "type": mt5.ORDER_TYPE_BUY,
+                    "price": tick.ask,
+                    "sl": sl_price,
+                    "tp": tp_price,
+                    "deviation": 20,
+                    "magic": 234000,
+                    "comment": "EcoTrade 24/7 Scalp",
+                    "type_time": mt5.ORDER_TIME_GTC,
+                    "type_filling": filling_mode,
+                }
+                res = mt5.order_send(req)
+                if res and res.retcode == mt5.TRADE_RETCODE_DONE:
+                    self.last_trade_time = now
+                    logger.info(
+                        "[BUY EXECUTED] Ticket #%d [%d/%d] | %s %.2fL @ $%.3f | SL $%.3f | TP $%.3f | Conf: %.1f%%",
+                        res.order, i + 1, slots_available, self.symbol, volume, tick.ask, sl_price, tp_price, bull_score,
+                    )
+                else:
+                    logger.warning("BUY Send failed [%d/%d]: %s (code %s)", i + 1, slots_available,
+                                   getattr(res, "comment", "?"), getattr(res, "retcode", "?"))
+                    break  # stop trying if broker rejects
 
         elif bear_score >= 65.0:
-            sl_price = round(tick.bid + self.sl_dollars, digits)
-            tp_price = round(tick.bid - self.tp_dollars, digits)
-            req = {
-                "action": mt5.TRADE_ACTION_DEAL,
-                "symbol": self.symbol,
-                "volume": volume,
-                "type": mt5.ORDER_TYPE_SELL,
-                "price": tick.bid,
-                "sl": sl_price,
-                "tp": tp_price,
-                "deviation": 20,
-                "magic": 234000,
-                "comment": "EcoTrade 24/7 Scalp",
-                "type_time": mt5.ORDER_TIME_GTC,
-                "type_filling": filling_mode,
-            }
-            res = mt5.order_send(req)
-            if res and res.retcode == mt5.TRADE_RETCODE_DONE:
-                self.last_trade_time = now
-                logger.info("[SELL EXECUTED] Ticket #%d | %s %.2fL @ $%.3f | SL $%.3f (-$10) | TP $%.3f (+$2) | Conf: %.1f%%", res.order, self.symbol, volume, tick.bid, sl_price, tp_price, bear_score)
-            else:
-                logger.warning("SELL Send failed: %s (code %s)", getattr(res, "comment", "?"), getattr(res, "retcode", "?"))
+            for i in range(slots_available):
+                sl_price = round(tick.bid + self.sl_dollars, digits)
+                tp_price = round(tick.bid - self.tp_dollars, digits)
+                req = {
+                    "action": mt5.TRADE_ACTION_DEAL,
+                    "symbol": self.symbol,
+                    "volume": volume,
+                    "type": mt5.ORDER_TYPE_SELL,
+                    "price": tick.bid,
+                    "sl": sl_price,
+                    "tp": tp_price,
+                    "deviation": 20,
+                    "magic": 234000,
+                    "comment": "EcoTrade 24/7 Scalp",
+                    "type_time": mt5.ORDER_TIME_GTC,
+                    "type_filling": filling_mode,
+                }
+                res = mt5.order_send(req)
+                if res and res.retcode == mt5.TRADE_RETCODE_DONE:
+                    self.last_trade_time = now
+                    logger.info(
+                        "[SELL EXECUTED] Ticket #%d [%d/%d] | %s %.2fL @ $%.3f | SL $%.3f | TP $%.3f | Conf: %.1f%%",
+                        res.order, i + 1, slots_available, self.symbol, volume, tick.bid, sl_price, tp_price, bear_score,
+                    )
+                else:
+                    logger.warning("SELL Send failed [%d/%d]: %s (code %s)", i + 1, slots_available,
+                                   getattr(res, "comment", "?"), getattr(res, "retcode", "?"))
+                    break  # stop trying if broker rejects
 
 
 def main():
@@ -525,8 +623,9 @@ def main():
     print("=" * 65)
     print(f" Account:  {args.login} ({args.server})")
     print(f" Target:   {args.symbol}")
-    print(f" Targets:  Take Profit: +${args.tp:.2f} | Stop Loss: -${args.sl:.2f}")
-    print(f" Risk:     {args.risk:.2f}% | Dynamic Break-Even: +$1.00")
+    print(f" Targets:  Aggregate TP: +${PureScalper.AGGREGATE_TP:.2f} (all positions) | Per-trade SL: -${args.sl:.2f}")
+    print(f" Slots:    Max {PureScalper.MAX_POSITIONS} concurrent positions | Account SL: -${PureScalper.ACCOUNT_SL_DROP:.0f}")
+    print(f" Risk:     {args.risk:.2f}% per trade | Dynamic Break-Even: +$1.00")
     print("=" * 65)
 
     global GLOBAL_SCALPER

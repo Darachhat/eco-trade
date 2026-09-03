@@ -133,7 +133,44 @@ services:
       - api
     restart: unless-stopped
 
+  # ─── MT5 Gold Scalper (Wine + Xvfb) ──────────────
+  scalper:
+    build:
+      context: .
+      dockerfile: Dockerfile.scalper
+    image: ecotrade_scalper:latest
+    container_name: ecotrade_scalper
+    environment:
+      # ── MT5 Credentials (override in .env) ──
+      - MT5_LOGIN=${MT5_LOGIN:-463894594}
+      - MT5_PASSWORD=${MT5_PASSWORD:-cHhat#2023}
+      - MT5_SERVER=${MT5_SERVER:-Exness-MT5Trial17}
+      # ── Scalper Parameters ───────────────────
+      - SYMBOL=${SCALPER_SYMBOL:-XAUUSDm}
+      - TP=${SCALPER_TP:-2.0}
+      - SL=${SCALPER_SL:-100}
+      - RISK=${SCALPER_RISK:-0.5}
+      # ── Wine / Display ───────────────────────
+      - DISPLAY=:99
+      - WINEDEBUG=-all
+    env_file:
+      - .env
+    ports:
+      - "8008:8008"      # HTTP bridge → frontend MT5 status API
+    volumes:
+      - ./run_scalper.py:/scalper/run_scalper.py:ro   # live-reload script
+      - scalper_logs:/scalper/logs
+    restart: unless-stopped
+    shm_size: "256mb"    # Wine needs shared memory for X rendering
+    healthcheck:
+      test: ["CMD", "curl", "-sf", "http://localhost:8008/api/mt5/status"]
+      interval: 30s
+      timeout: 10s
+      retries: 3
+      start_period: 60s
+
 volumes:
   postgres_data:
   redis_data:
   model_artifacts:
+  scalper_logs:

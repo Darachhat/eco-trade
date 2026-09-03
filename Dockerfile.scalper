@@ -1,0 +1,72 @@
+# ==============================================================================
+# Dockerfile.scalper
+# ──────────────────
+# Headless MetaTrader 5 scalper container (Wine + Xvfb on Ubuntu)
+# Runs run_scalper.py under Windows Python 3.9 inside Wine 24/7.
+# ==============================================================================
+
+FROM ubuntu:24.04
+
+ENV DEBIAN_FRONTEND=noninteractive \
+    DISPLAY=:99 \
+    WINEPREFIX=/root/.wine \
+    WINEDEBUG=-all \
+    WINEARCH=win64
+
+# ── System deps: Wine, Xvfb, Python3 for entrypoint, curl ─────────────────────
+RUN dpkg --add-architecture i386 && \
+    apt-get update && \
+    apt-get install -y --no-install-recommends \
+        software-properties-common \
+        gnupg2 \
+        ca-certificates \
+        wget \
+        curl \
+        xvfb \
+        x11-utils \
+        xdotool \
+        python3 \
+        python3-pip \
+        winbind \
+    && add-apt-repository -y ppa:ubuntuhandbook1/wine && \
+    apt-get update && \
+    apt-get install -y --no-install-recommends \
+        wine64 \
+        wine32 \
+    && rm -rf /var/lib/apt/lists/*
+
+WORKDIR /scalper
+
+# ── Install Windows Python 3.9 inside Wine ────────────────────────────────────
+RUN Xvfb :99 -screen 0 1024x768x16 -nolisten tcp & \
+    sleep 3 && \
+    wget -q -O /tmp/python-3.9.13-amd64.exe \
+        https://www.python.org/ftp/python/3.9.13/python-3.9.13-amd64.exe && \
+    wine /tmp/python-3.9.13-amd64.exe /quiet InstallAllUsers=1 PrependPath=1 \
+        TargetDir="C:\\Python39" && \
+    sleep 5 && \
+    rm /tmp/python-3.9.13-amd64.exe
+
+# ── Install MetaTrader5 Python package inside Wine Python ─────────────────────
+RUN Xvfb :99 -screen 0 1024x768x16 -nolisten tcp & \
+    sleep 3 && \
+    wine "C:\\Python39\\python.exe" -m pip install --upgrade pip && \
+    wine "C:\\Python39\\python.exe" -m pip install MetaTrader5
+
+# ── Download & install MT5 terminal inside Wine ───────────────────────────────
+RUN Xvfb :99 -screen 0 1024x768x16 -nolisten tcp & \
+    sleep 3 && \
+    wget -q -O /tmp/mt5setup.exe \
+        https://download.mql5.com/cdn/web/metaquotes.software.corp/mt5/mt5setup.exe && \
+    wine /tmp/mt5setup.exe /auto || true && \
+    sleep 15 && \
+    rm -f /tmp/mt5setup.exe
+
+# ── Copy scalper script ───────────────────────────────────────────────────────
+COPY run_scalper.py .
+
+# ── Entrypoint: start Xvfb then run scalper under Wine Python ────────────────
+COPY docker-entrypoint-scalper.sh /entrypoint.sh
+RUN chmod +x /entrypoint.sh
+
+ENTRYPOINT ["/entrypoint.sh"]
