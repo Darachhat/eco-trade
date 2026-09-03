@@ -54,34 +54,38 @@ def main():
             break
     log("BINARY", f"Discovered terminal path: {terminal_path} (exists={terminal_path is not None})")
 
-    # ── TEST 1: Initialize without path (Attach to already-running terminal) ───
+    # ── TEST 1: Initialize without path (Attach mode) ──────────────────────────
     print("-" * 70)
-    log("TEST-1", "Testing mt5.initialize() WITHOUT path (attach mode)...")
-    init_1 = mt5.initialize(timeout=10000)
-    last_err_1 = mt5.last_error()
-    log("TEST-1", f"Result: {init_1} | last_error: {last_err_1}")
+    log("TEST-1A", "Testing mt5.initialize(portable=False, timeout=10000)...")
+    init_1a = mt5.initialize(portable=False, timeout=10000)
+    log("TEST-1A", f"Result: {init_1a} | last_error: {mt5.last_error()}")
 
-    if not init_1:
-        log("TEST-1", "Direct attach returned False. Trying TEST-2 with explicit path...")
-        # ── TEST 2: Initialize with path (Launch / Connect via executable path) ─
+    init_ok = init_1a
+    if not init_ok:
+        log("TEST-1B", "Testing mt5.initialize(portable=True, timeout=10000)...")
+        init_1b = mt5.initialize(portable=True, timeout=10000)
+        log("TEST-1B", f"Result: {init_1b} | last_error: {mt5.last_error()}")
+        init_ok = init_1b
+
+    # ── TEST 2: Initialize with explicit path ──────────────────────────────────
+    if not init_ok and terminal_path:
         print("-" * 70)
-        if terminal_path:
-            log("TEST-2", f"Testing mt5.initialize(path='{terminal_path}', timeout=30000)...")
-            init_2 = mt5.initialize(path=terminal_path, timeout=30000)
-            last_err_2 = mt5.last_error()
-            log("TEST-2", f"Result: {init_2} | last_error: {last_err_2}")
-            init_ok = init_2
-        else:
-            log("TEST-2", "Skipped: no terminal binary path found.")
-            init_ok = False
-    else:
-        init_ok = True
+        log("TEST-2A", f"Testing mt5.initialize(path='{terminal_path}', portable=False, timeout=30000)...")
+        init_2a = mt5.initialize(path=terminal_path, portable=False, timeout=30000)
+        log("TEST-2A", f"Result: {init_2a} | last_error: {mt5.last_error()}")
+        init_ok = init_2a
+
+        if not init_ok:
+            log("TEST-2B", f"Testing mt5.initialize(path='{terminal_path}', portable=True, timeout=30000)...")
+            init_2b = mt5.initialize(path=terminal_path, portable=True, timeout=30000)
+            log("TEST-2B", f"Result: {init_2b} | last_error: {mt5.last_error()}")
+            init_ok = init_2b
 
     if not init_ok:
         print("=" * 70)
-        log("RESULT", ">>> IPC FAILURE <<<")
-        log("RESULT", "Python could NOT establish IPC communication with MT5 terminal.")
-        log("RESULT", "This is an IPC/Process layer issue, NOT a broker or trading logic issue.")
+        log("RESULT", ">>> IPC FAILURE ON ALL MODES <<<")
+        log("RESULT", "Python could NOT establish IPC communication with MT5 terminal in any mode.")
+        log("RESULT", "Checking if terminal is blocked or multiple processes are clashing.")
         print("=" * 70)
         sys.exit(2)
 
